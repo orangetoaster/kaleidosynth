@@ -18,7 +18,7 @@ static const int SECONDS = 3;
 #define WIDTH 640
 #define HEIGHT 480
 // RGB = 4
-#define COLOURS 1
+#define COLOURS 3
 
 /// AUDIO GLOBALS ///  
 typedef struct {
@@ -36,7 +36,7 @@ static const int nn_batch_size = WIDTH * HEIGHT;
 static const int hidden_neurons = 10, output_neurons = COLOURS;
 static const float initialization_sigma = 3.00;
 static const int epochs = 10;
-static const int num_layers = 4; // THIS MUST MATCH BELOW
+static const int num_layers = 3; // THIS MUST MATCH BELOW
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -52,7 +52,7 @@ struct neural_layer cppn[] = {
     .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .activate = &gaussian_activate,
     .backprop = &gaussian_prime,
-  }, {
+/*  }, {
     .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
     .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
     .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
@@ -60,7 +60,7 @@ struct neural_layer cppn[] = {
     .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .activate = &gaussian_activate,
-    .backprop = &gaussian_prime,
+    .backprop = &gaussian_prime,*/
   }, {
     .weights = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
     .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
@@ -88,7 +88,7 @@ static int init_neural_network() {
       cppn[i].zvals.e = calloc(cppn[i].zvals.x * cppn[i].zvals.y, sizeof(float));
       
       randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
-      randomize(cppn[i].biases.e, cppn[i].biases.y, initialization_sigma);
+      randomize(cppn[i].biases.e, cppn[i].biases.x * cppn[i].biases.y, initialization_sigma);
     }
   }
 
