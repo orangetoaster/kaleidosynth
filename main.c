@@ -3,7 +3,7 @@
 #include <portaudio.h>
 
 typedef int retcode;
-#define retfail(CONDITION) { retcode __retval = CONDITION ; if((__retval < 0)) { return __retval; } }
+#define retfail(CONDITION) { retcode __retval = CONDITION ; if((__retval < 0)) { fprintf(stderr, "Failed: %s\n In %s on line %d\n", #CONDITION, __FILE__, __LINE__ ); return __retval; } }
 
 #define TABLE_SIZE 200
 typedef struct {
@@ -36,8 +36,7 @@ static int audio_buffer_sync_callback(
   return paContinue;
 }
 
-PaStream *stream;
-static int init_portaudio() {
+static int init_portaudio(PaStream **stream) {
   PaStreamParameters outputParameters;
   LRAudioBuf audio_buf;
   int i;
@@ -59,7 +58,7 @@ static int init_portaudio() {
   outputParameters.hostApiSpecificStreamInfo = NULL;
 
   return Pa_OpenStream(
-      &stream,
+      *stream,
       NULL, // no input
       &outputParameters,
       44100, // sample rate
@@ -69,20 +68,21 @@ static int init_portaudio() {
       &audio_buf ); // this is context in the callback
 }
 
-static int play_sound(float seconds) {
-    retfail(Pa_StartStream( stream ));
+static int play_sound(PaStream **stream, float seconds) {
+    retfail(Pa_StartStream(*stream));
 
     Pa_Sleep(seconds * 1000 );
 
-    retfail(Pa_StopStream( stream ));
-    retfail(Pa_CloseStream( stream ));
+    retfail(Pa_StopStream( *stream ));
+    retfail(Pa_CloseStream( *stream ));
     return Pa_Terminate();
 }
 
 int main() {
+  PaStream *stream;
   printf("Hello sound\n");
-  retfail(init_portaudio());
-  retfail(play_sound(.5));
+  retfail(init_portaudio(&stream));
+  retfail(play_sound(stream, .5));
   printf("All good.\n");
   return 0;
 }
