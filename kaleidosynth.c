@@ -113,10 +113,10 @@ static int shutdown() {
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = 3; // x, y, frame
 static const int nn_batch_size = HEIGHT * WIDTH;
-static const int hidden_neurons = 30, output_neurons = 3; // RGB
-static const float initialization_sigma = 0.50;
+static const int hidden_neurons = 10, output_neurons = 3; // RGB
+static const float initialization_sigma = 3.00;
 static const int epochs = 10;
-static const int num_layers = 3; // THIS MUST MATCH BELOW
+static const int num_layers = 4; // THIS MUST MATCH BELOW
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -126,6 +126,15 @@ struct neural_layer cppn[] = {
   }, {
     .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
     .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
+    .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .activate = &gaussian_activate,
+    .backprop = &gaussian_prime,
+  }, {
+    .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
+    .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
     .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
@@ -189,7 +198,7 @@ int init_display(int argc, char **argv) {
   glutInitWindowSize(800, 600);
 
   glutCreateWindow("Kaleidosynth");
-  //glutFullScreen();
+  glutFullScreen();
  
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
