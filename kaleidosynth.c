@@ -183,17 +183,42 @@ void sighandler(int signo) {
 #include <GL/glu.h>
 #endif
 
-void display() {
+int init_display(int argc, char **argv) {
+  glutInit(&argc, argv);
+  glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
+  glutInitWindowSize(800, 600);
+
+  glutCreateWindow("Kaleidosynth");
+  //glutFullScreen();
+ 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
+  
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  gluOrtho2D(0, 1, 0, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
+  glRasterPos3f(0.0, 0.0, 0);
 
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+
+  return SUCCESS;
+}
+
+void display() {
   float framebuffer[HEIGHT][WIDTH][COLOURS] = { 0 };
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 0] = (float) j / WIDTH;
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) i / HEIGHT;
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) frame_count / (SECONDS * FPS);
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 0] = (float) j / (WIDTH/2) -1.0;
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) i / (HEIGHT/2) -1.0;
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) frame_count / (SECONDS * FPS / 2) -1.0;
     }
   }
 
@@ -209,7 +234,7 @@ void display() {
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
                GL_FLOAT, res.e);
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
-
+  
   glBegin(GL_QUADS);
     glTexCoord2f (0.5f,0.5f);
     glVertex3f(-1,-1,0);
@@ -224,20 +249,7 @@ void display() {
     glVertex3f(-1,1,0);
   glEnd();
 
-  glMatrixMode(GL_PROJECTION);
-  glPushMatrix();
-  glLoadIdentity();
-  gluOrtho2D(0, 1, 0, 1);
-  glMatrixMode(GL_MODELVIEW);
-  glPushMatrix();
-  glLoadIdentity();
-  glRasterPos3f(0.0, 0.0, 0);
 
-  glPopMatrix();
-  glMatrixMode(GL_PROJECTION);
-  glPopMatrix();
-  glMatrixMode(GL_MODELVIEW);
- 
   // only print once per second
   clock_t curtime = clock();
   if ( curtime - lasttime >= CLOCKS_PER_SEC ){ 
@@ -271,12 +283,7 @@ int main(int argc, char **argv) {
   retfail(Pa_StartStream(stream));
   
   printf("Hello video\n");
-  glutInit(&argc, argv);
-  glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize(800, 600);
-
-  glutCreateWindow("Kaleidosynth");
-  //glutFullScreen();
+  retfail(init_display(argc, argv));
 
   glutDisplayFunc(&display);
   glutTimerFunc(0, &timer, 0);
