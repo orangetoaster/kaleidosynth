@@ -111,15 +111,45 @@ void sighandler(int signo) {
 #include <GL/glu.h>
 
 #define FPS 60
-
+#define HEIGHT 640
+#define WIDTH 480
+// RGB = 4
+#define COLOURS 3
 void display() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
 
+  unsigned char framebuffer[HEIGHT][WIDTH][COLOURS] = { 0 };
+
+  for(int i=0; i < HEIGHT; ++i) {
+    for(int j=0; j < WIDTH; ++j) {
+      framebuffer[i][j][1] = (unsigned char) j;
+      framebuffer[i][j][2] = (unsigned char) i;
+      //framebuffer[i][j][3] = (unsigned char) j + i;
+    }
+  }
+  int tex_id = 0;
+
+  glGenTextures(1, &tex_id);
+  glBindTexture(GL_TEXTURE_2D, tex_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, HEIGHT, WIDTH, 0, GL_RGB,
+               GL_UNSIGNED_BYTE, framebuffer);
+  //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
+
   glBegin(GL_QUADS);
+    glTexCoord2f (0.5f,0.5f);
     glVertex3f(-1,-1,0);
+    
+    glTexCoord2f (0.0f,0.5f);
     glVertex3f(1,-1,0);
+    
+    glTexCoord2f (0.0f,0.0f);
     glVertex3f(1,1,0);
+    
+    glTexCoord2f (0.5f,0.0f);
     glVertex3f(-1,1,0);
   glEnd();
 
@@ -130,7 +160,7 @@ void display() {
   glMatrixMode(GL_MODELVIEW);
   glPushMatrix();
   glLoadIdentity();
-  glRasterPos3f(.10, .90, 0);
+  glRasterPos3f(0.0, 0.0, 0);
 
   glPopMatrix();
   glMatrixMode(GL_PROJECTION);
