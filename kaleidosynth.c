@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "nn.h"
 #include <math.h>
 #include <portaudio.h>
 #include <complex.h>
@@ -99,6 +100,46 @@ static int shutdown() {
     return 0;
 }
 
+static int neural_network() {
+  static const int pixcount = 10;
+  static const int hidden_neurons = 30, output_neurons = 10;
+  static const float initialization_sigma = 0.50;
+  static const int epochs = 10;
+  struct neural_layer cppn[] = {
+    {
+      .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
+      .activations = { .x = 1, .y = pixcount, .e = malloc(pixcount * sizeof(float)) },
+      .activate = NULL, .backprop = NULL,
+    }, {
+      .weights = { .x = pixcount, .y = hidden_neurons, .e = malloc(pixcount *hidden_neurons * sizeof(float)) },
+      .w_delt = { .x = pixcount, .y = hidden_neurons, .e = calloc(pixcount * hidden_neurons, sizeof(float)) },
+      .biases = { .x = 1, .y = hidden_neurons, .e = malloc(hidden_neurons * sizeof(float)) },
+      .b_delt = { .x = 1, .y = hidden_neurons, .e = calloc(hidden_neurons, sizeof(float)) },
+      .activations = { .x = 1, .y = hidden_neurons, .e = calloc(hidden_neurons, sizeof(float)) },
+      .activate = &sigmoid_activate,
+      .backprop = &sigmoid_deriv,
+    }, {
+      .weights = { .x = hidden_neurons, .y = output_neurons, .e = malloc(hidden_neurons *output_neurons * sizeof(float)) },
+      .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = calloc(hidden_neurons * output_neurons, sizeof(float)) },
+      .biases = { .x = 1, .y = output_neurons, .e = malloc(output_neurons * sizeof(float)) },
+      .b_delt = { .x = 1, .y = output_neurons, .e = calloc(output_neurons, sizeof(float)) },
+      .activations = { .x = 1, .y = output_neurons, .e = calloc(output_neurons, sizeof(float)) },
+      .activate = &sigmoid_activate,
+      .backprop = &sigmoid_deriv,
+    },
+  };
+
+  static const int num_layers = 3;
+
+  for (int i = 1; i < num_layers; ++i) {
+    randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
+    randomize(cppn[i].biases.e, cppn[i].biases.y, initialization_sigma);
+  }
+
+  matrix res = feedforward(cppn, num_layers);
+  printf("%f", res.e[0]);
+}
+
 void sighandler(int signo) {
   if (signo == SIGKILL) {
     printf("Shutting down...");
@@ -106,9 +147,16 @@ void sighandler(int signo) {
   }
 }
 
-#include <GL/glut.h>
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#include <GLUT/glut.h>
+#include <OpenGL/glu.h>
+#else
 #include <GL/gl.h>
+#include <GL/glut.h>
 #include <GL/glu.h>
+#endif
+
 
 #define FPS 60
 
