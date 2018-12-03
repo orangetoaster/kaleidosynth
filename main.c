@@ -11,7 +11,7 @@ typedef int retcode;
 #define TABLE_SIZE 2048
 typedef struct {
   kiss_fft_scalar buffer_data[TABLE_SIZE]; // pre-buffer size
-  kiss_fft_cpx freq_domain[TABLE_SIZE/2]; // pre-buffer size
+  kiss_fft_scalar freq_domain[TABLE_SIZE]; // pre-buffer size
   int left_phase;
   int note_pos;
   kiss_fftr_cfg cfg;
@@ -35,10 +35,10 @@ static int audio_buffer_sync_callback(
     audio_buf->left_phase += 1;
     if( audio_buf->left_phase >= TABLE_SIZE ) {
       audio_buf->left_phase -= TABLE_SIZE;
-      audio_buf->freq_domain[audio_buf->note_pos].i = 0;
-      audio_buf->note_pos = (audio_buf->note_pos + 1) % (TABLE_SIZE/2);
-      audio_buf->freq_domain[audio_buf->note_pos].i = -200;
-      kiss_fftri(audio_buf->cfg, audio_buf->freq_domain, audio_buf->buffer_data);
+      audio_buf->freq_domain[audio_buf->note_pos] = 0;
+      audio_buf->note_pos = (audio_buf->note_pos + 4) % (TABLE_SIZE);
+      audio_buf->freq_domain[audio_buf->note_pos] = 1;
+      kiss_fftri(audio_buf->cfg, (kiss_fft_cpx *)audio_buf->freq_domain, audio_buf->buffer_data);
     }
   }
   return paContinue;
