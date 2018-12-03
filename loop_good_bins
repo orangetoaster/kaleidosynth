@@ -1,0 +1,1 @@
+while true ; do for bin in good_bins/*; do echo "Playing "$bin ; ./$bin 2>/dev/null ; done ; done

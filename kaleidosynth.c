@@ -2,6 +2,7 @@
 #include <math.h>
 #include <portaudio.h>
 #include <complex.h>
+#include <signal.h>
 #include "kiss_fftr.h"
 
 typedef int retcode;
@@ -16,6 +17,10 @@ typedef struct {
   int note_pos;
   kiss_fftr_cfg cfg;
 } LRAudioBuf;
+  
+/// GLOBALS ///  
+LRAudioBuf audio_buf = { 0 };
+PaStream *stream = NULL;
 
 // This can be called at interrupt level, so nothing fancy, no malloc/free
 static int audio_buffer_sync_callback(
@@ -36,8 +41,8 @@ static int audio_buffer_sync_callback(
     if( audio_buf->left_phase >= TABLE_SIZE ) {
       audio_buf->left_phase -= TABLE_SIZE;
       audio_buf->freq_domain[audio_buf->note_pos] = 0;
-      audio_buf->note_pos = (audio_buf->note_pos + 4) % (TABLE_SIZE);
-      audio_buf->freq_domain[audio_buf->note_pos] = 1;
+      audio_buf->note_pos = (audio_buf->note_pos + 8) % (TABLE_SIZE);
+      audio_buf->freq_domain[audio_buf->note_pos] = 16;
       kiss_fftri(audio_buf->cfg, (kiss_fft_cpx *)audio_buf->freq_domain, audio_buf->buffer_data);
     }
   }
@@ -53,8 +58,7 @@ int near(float a, float b, float epsilon) {
   return (a + epsilon > b && a - epsilon < b);
 }
 
-LRAudioBuf audio_buf = { 0 };
-static int init_portaudio(PaStream **stream) {
+static int init_portaudio() {
   PaStreamParameters outputParameters = { 0 };
   memset(&outputParameters, 0, sizeof(outputParameters));
   
@@ -73,7 +77,7 @@ static int init_portaudio(PaStream **stream) {
   outputParameters.hostApiSpecificStreamInfo = NULL;
 
   retfail(Pa_OpenStream(
-      stream,
+      &stream,
       NULL, // no input
       &outputParameters,
       44100, // sample rate
@@ -82,27 +86,33 @@ static int init_portaudio(PaStream **stream) {
       audio_buffer_sync_callback,
       &audio_buf )); // this is context in the callback
   
-  retfail(Pa_SetStreamFinishedCallback(*stream, &cleanup));
+  retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
 
   return 0;
 }
 
-static int play_sound(PaStream **stream, float seconds) {
-    retfail(Pa_StartStream(stream));
-
-    Pa_Sleep(seconds * 1000 );
-
+static int shutdown() {
     retfail(Pa_StopStream( stream ));
     retfail(Pa_CloseStream( stream ));
     return 0;
 }
 
+void sighandler(int signo) {
+  if (signo == SIGKILL) {
+    printf("Shutting down...");
+    shutdown();
+  }
+}
+
 int main() {
-  PaStream *stream = NULL;
   printf("Hello sound\n");
-  retfail(init_portaudio(&stream));
-  retfail(play_sound(stream, 30));
+  retfail(init_portaudio());
+  retfail(signal(SIGINT, sighandler) == SIG_ERR);
+  retfail(Pa_StartStream(stream));
+  float seconds = 30.0;;
+  Pa_Sleep(seconds * 1000 );
   Pa_Terminate();
+  shutdown();
 
   printf("All good.\n");
   return 0;
