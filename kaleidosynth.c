@@ -8,19 +8,6 @@
 #include "err.h"
 #include <time.h>
 
-#define TABLE_SIZE 2048
-typedef struct {
-  kiss_fft_scalar buffer_data[TABLE_SIZE]; // pre-buffer size
-  kiss_fft_scalar freq_domain[TABLE_SIZE]; // pre-buffer size
-  int left_phase;
-  int note_pos;
-  kiss_fftr_cfg cfg;
-} LRAudioBuf;
-  
-/// AUDIO GLOBALS ///  
-LRAudioBuf audio_buf = { 0 };
-PaStream *stream = NULL;
-
 /// VIDEO GLOBALS ///
 static volatile int frame_count = 0;
 static volatile int lastframe = 0;
@@ -31,89 +18,22 @@ static const int SECONDS = 3;
 #define WIDTH 640
 #define HEIGHT 480
 // RGB = 4
-#define COLOURS 3
+#define COLOURS 1
 
-// This can be called at interrupt level, so nothing fancy, no malloc/free
-static int audio_buffer_sync_callback(
-    const void *inputBuffer, // unused
-    void *outputBuffer,
-    unsigned long framesPerBuffer, // This tends to be 64
-    const PaStreamCallbackTimeInfo* timeInfo, // unused
-    PaStreamCallbackFlags stats, // unused
-    void *context ) {
-
-  LRAudioBuf *audio_buf = (LRAudioBuf*)context;
-  float *out = (float*)outputBuffer;
-  unsigned long i;
-
-  for( i=0; i<framesPerBuffer; i++ ) {
-    *out++ = audio_buf->buffer_data[audio_buf->left_phase];  // left channel
-    audio_buf->left_phase += 1;
-    if( audio_buf->left_phase >= TABLE_SIZE ) {
-      audio_buf->left_phase -= TABLE_SIZE;
-      audio_buf->freq_domain[audio_buf->note_pos] = 0;
-      audio_buf->freq_domain[TABLE_SIZE - audio_buf->note_pos -1] = 0;
-      audio_buf->note_pos = (audio_buf->note_pos + 8) % (TABLE_SIZE);
-      audio_buf->freq_domain[audio_buf->note_pos] = 32;
-      audio_buf->freq_domain[TABLE_SIZE - audio_buf->note_pos -1] = -32;
-      kiss_fftri(audio_buf->cfg, (kiss_fft_cpx *)audio_buf->freq_domain, audio_buf->buffer_data);
-    }
-  }
-  return paContinue;
-}
-
-static void cleanup(void *context) {
-  LRAudioBuf *audio_buf = (LRAudioBuf*)context;
-  free(audio_buf->cfg);
-}
-  
-int near(float a, float b, float epsilon) {
-  return (a + epsilon > b && a - epsilon < b);
-}
-
-static int init_portaudio() {
-  PaStreamParameters outputParameters = { 0 };
-  memset(&outputParameters, 0, sizeof(outputParameters));
-  
-  // init the buzz with a real ifft
-  memset(&audio_buf, 0, sizeof(audio_buf));
-  audio_buf.cfg = kiss_fftr_alloc(TABLE_SIZE, 1, NULL,NULL);
-
-  retfail(Pa_Initialize());
-
-  outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
-  retfail(outputParameters.device == paNoDevice) // no default output device
-  
-  outputParameters.channelCount = 1; // If this is stereo, then the autputBuffer is (L, R) tuples
-  outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
-  outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
-  outputParameters.hostApiSpecificStreamInfo = NULL;
-
-  retfail(Pa_OpenStream(
-      &stream,
-      NULL, // no input
-      &outputParameters,
-      44100, // sample rate
-      64, // sample frames per buffer
-      paClipOff,
-      audio_buffer_sync_callback,
-      &audio_buf )); // this is context in the callback
-  
-  retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
-
-  return SUCCESS;
-}
-
-static int shutdown() {
-    retfail(Pa_StopStream( stream ));
-    retfail(Pa_CloseStream( stream ));
-    return SUCCESS;
-}
+/// AUDIO GLOBALS ///  
+typedef struct {
+  kiss_fft_scalar buffer_data[WIDTH]; // pre-buffer size
+  int left_phase;
+  int note_pos;
+  kiss_fftr_cfg cfg;
+} LRAudioBuf;
+LRAudioBuf audio_buf = { 0 };
+PaStream *stream = NULL;
 
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = 3; // x, y, frame
-static const int nn_batch_size = HEIGHT * WIDTH;
-static const int hidden_neurons = 10, output_neurons = 3; // RGB
+static const int nn_batch_size = WIDTH * HEIGHT;
+static const int hidden_neurons = 10, output_neurons = COLOURS;
 static const float initialization_sigma = 3.00;
 static const int epochs = 10;
 static const int num_layers = 4; // THIS MUST MATCH BELOW
@@ -175,6 +95,83 @@ static int init_neural_network() {
   return SUCCESS;
 }
 
+/// AUDIO CODE ///
+// This can be called at interrupt level, so nothing fancy, no malloc/free
+static int audio_buffer_sync_callback(
+    const void *inputBuffer, // unused
+    void *outputBuffer,
+    unsigned long framesPerBuffer, // This tends to be 64
+    const PaStreamCallbackTimeInfo* timeInfo, // unused
+    PaStreamCallbackFlags stats, // unused
+    void *context ) {
+
+  LRAudioBuf *audio_buf = (LRAudioBuf*)context;
+  float *out = (float*)outputBuffer;
+  unsigned long i;
+
+  for( i=0; i<framesPerBuffer; i++ ) {
+    *out++ = audio_buf->buffer_data[audio_buf->left_phase];  // left channel
+    audio_buf->left_phase += 1;
+    // refill the audio buffer with the ifft of the visualization scanning down the screen
+    if( audio_buf->left_phase >= WIDTH ) {
+      audio_buf->left_phase -= WIDTH;
+      audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
+      kiss_fftri(audio_buf->cfg, 
+        (kiss_fft_cpx *) &cppn[num_layers -1].activations.e[audio_buf->note_pos * WIDTH],
+        audio_buf->buffer_data);
+    }
+  }
+  return paContinue;
+}
+
+static void cleanup(void *context) {
+  LRAudioBuf *audio_buf = (LRAudioBuf*)context;
+  free(audio_buf->cfg);
+}
+  
+int near(float a, float b, float epsilon) {
+  return (a + epsilon > b && a - epsilon < b);
+}
+
+static int init_portaudio() {
+  PaStreamParameters outputParameters = { 0 };
+  memset(&outputParameters, 0, sizeof(outputParameters));
+  
+  // init the buzz with a real ifft
+  memset(&audio_buf, 0, sizeof(audio_buf));
+  audio_buf.cfg = kiss_fftr_alloc(WIDTH, 1, NULL,NULL);
+
+  retfail(Pa_Initialize());
+
+  outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
+  retfail(outputParameters.device == paNoDevice) // no default output device
+  
+  outputParameters.channelCount = 1; // If this is stereo, then the autputBuffer is (L, R) tuples
+  outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
+  outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+  outputParameters.hostApiSpecificStreamInfo = NULL;
+
+  retfail(Pa_OpenStream(
+      &stream,
+      NULL, // no input
+      &outputParameters,
+      44100, // sample rate
+      64, // sample frames per buffer
+      paClipOff,
+      audio_buffer_sync_callback,
+      &audio_buf )); // this is context in the callback
+  
+  retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
+
+  return SUCCESS;
+}
+
+static int shutdown() {
+    retfail(Pa_StopStream( stream ));
+    retfail(Pa_CloseStream( stream ));
+    return SUCCESS;
+}
+
 void sighandler(int signo) {
   if (signo == SIGKILL) {
     printf("Shutting down...");
@@ -182,6 +179,7 @@ void sighandler(int signo) {
   }
 }
 
+/// VIDEO CODE ///
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #include <GLUT/glut.h>
@@ -195,10 +193,10 @@ void sighandler(int signo) {
 int init_display(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize(800, 600);
+  glutInitWindowSize(WIDTH, HEIGHT);
 
   glutCreateWindow("Kaleidosynth");
-  glutFullScreen();
+  //glutFullScreen();
  
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
@@ -240,8 +238,13 @@ void display() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
+  if(COLOURS == 1) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, WIDTH, HEIGHT, 0, GL_LUMINANCE,
                GL_FLOAT, res.e);
+  } else if (COLOURS == 3) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
+               GL_FLOAT, res.e);
+  }
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
   
   glBegin(GL_QUADS);
