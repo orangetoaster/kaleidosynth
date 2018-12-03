@@ -8,7 +8,7 @@ typedef int retcode;
 #define retfail(CONDITION) { retcode __retval = CONDITION ; if((__retval < 0)) \
   { fprintf(stderr, "Failed: %s\n In %s on line %d - %d\n", #CONDITION, __FILE__, __LINE__, __retval ); return __retval; } }
 
-#define TABLE_SIZE 256
+#define TABLE_SIZE 2048
 typedef struct {
   kiss_fft_scalar buffer_data[TABLE_SIZE]; // pre-buffer size
   kiss_fft_cpx freq_domain[TABLE_SIZE/2]; // pre-buffer size
@@ -101,7 +101,7 @@ int main() {
   PaStream *stream = NULL;
   printf("Hello sound\n");
   retfail(init_portaudio(&stream));
-  retfail(play_sound(stream, 2));
+  retfail(play_sound(stream, 30));
   Pa_Terminate();
 
   printf("All good.\n");
