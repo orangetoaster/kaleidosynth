@@ -1,0 +1,7 @@
+#!/bin/bash
+mkdir -p good_bins/
+gcc -DDEBUG -g -Wall \
+  -I /System/Library/Frameworks/OpenGL.framework/Headers \
+  -l portaudio -lm -pthread -framework OpenGL -framework GLUT kaleidosynth.c kiss_fftr.c kiss_fft.c  \
+  -o bin/kaleidosynth && \
+  cp ./bin/kaleidosynth good_bins/kaleidosynth.$(openssl rand -base64 3)
