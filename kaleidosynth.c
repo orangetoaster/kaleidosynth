@@ -5,10 +5,7 @@
 #include <complex.h>
 #include <signal.h>
 #include "kiss_fftr.h"
-
-typedef int retcode;
-#define retfail(CONDITION) { retcode __retval = CONDITION ; if((__retval < 0)) \
-  { fprintf(stderr, "Failed: %s\n In %s on line %d - %d\n", #CONDITION, __FILE__, __LINE__, __retval ); return __retval; } }
+#include "err.h"
 
 #define TABLE_SIZE 2048
 typedef struct {
@@ -19,7 +16,7 @@ typedef struct {
   kiss_fftr_cfg cfg;
 } LRAudioBuf;
   
-/// GLOBALS ///  
+/// AUDIO GLOBALS ///  
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
 
@@ -91,53 +88,63 @@ static int init_portaudio() {
   
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
 
-  return 0;
+  return SUCCESS;
 }
 
 static int shutdown() {
     retfail(Pa_StopStream( stream ));
     retfail(Pa_CloseStream( stream ));
-    return 0;
+    return SUCCESS;
 }
 
-static int neural_network() {
-  static const int pixcount = 10;
-  static const int hidden_neurons = 30, output_neurons = 10;
-  static const float initialization_sigma = 0.50;
-  static const int epochs = 10;
-  struct neural_layer cppn[] = {
-    {
-      .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
-      .activations = { .x = 1, .y = pixcount, .e = malloc(pixcount * sizeof(float)) },
-      .activate = NULL, .backprop = NULL,
-    }, {
-      .weights = { .x = pixcount, .y = hidden_neurons, .e = malloc(pixcount *hidden_neurons * sizeof(float)) },
-      .w_delt = { .x = pixcount, .y = hidden_neurons, .e = calloc(pixcount * hidden_neurons, sizeof(float)) },
-      .biases = { .x = 1, .y = hidden_neurons, .e = malloc(hidden_neurons * sizeof(float)) },
-      .b_delt = { .x = 1, .y = hidden_neurons, .e = calloc(hidden_neurons, sizeof(float)) },
-      .activations = { .x = 1, .y = hidden_neurons, .e = calloc(hidden_neurons, sizeof(float)) },
-      .activate = &sigmoid_activate,
-      .backprop = &sigmoid_deriv,
-    }, {
-      .weights = { .x = hidden_neurons, .y = output_neurons, .e = malloc(hidden_neurons *output_neurons * sizeof(float)) },
-      .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = calloc(hidden_neurons * output_neurons, sizeof(float)) },
-      .biases = { .x = 1, .y = output_neurons, .e = malloc(output_neurons * sizeof(float)) },
-      .b_delt = { .x = 1, .y = output_neurons, .e = calloc(output_neurons, sizeof(float)) },
-      .activations = { .x = 1, .y = output_neurons, .e = calloc(output_neurons, sizeof(float)) },
-      .activate = &sigmoid_activate,
-      .backprop = &sigmoid_deriv,
-    },
-  };
+/// NEURAL NETWORK GLOBALS ///
+static const int nn_input_size = 3; // x, y, frame
+static const int hidden_neurons = 3, output_neurons = 3; // RGB
+static const float initialization_sigma = 0.50;
+static const int epochs = 10;
+static const int num_layers = 3; // THIS MUST MATCH BELOW
+struct neural_layer cppn[] = {
+  {
+    .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
+    .activations = { .x = 1, .y = nn_input_size, .e = NULL },
+    .activate = NULL, .backprop = NULL,
+  }, {
+    .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
+    .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
+    .biases = { .x = 1, .y = hidden_neurons, .e = NULL },
+    .b_delt = { .x = 1, .y = hidden_neurons, .e = NULL },
+    .activations = { .x = 1, .y = hidden_neurons, .e = NULL },
+    .activate = &sigmoid_activate,
+    .backprop = &sigmoid_deriv,
+  }, {
+    .weights = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
+    .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
+    .biases = { .x = 1, .y = output_neurons, .e = NULL },
+    .b_delt = { .x = 1, .y = output_neurons, .e = NULL },
+    .activations = { .x = 1, .y = output_neurons, .e = NULL },
+    .activate = &sigmoid_activate,
+    .backprop = &sigmoid_deriv,
+  },
+};
 
-  static const int num_layers = 3;
+static int init_neural_network() {
+  for (int i = 0; i < num_layers; ++i) {
+    if(i == 0) {
+      cppn[i].activations.e = malloc(nn_input_size * sizeof(float));
+    } else {
+      cppn[i].weights.e = malloc(cppn[i].weights.x * cppn[i].weights.y * sizeof(float));
+      cppn[i].w_delt.e = calloc(cppn[i].w_delt.x * cppn[i].w_delt.y, sizeof(float));
 
-  for (int i = 1; i < num_layers; ++i) {
-    randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
-    randomize(cppn[i].biases.e, cppn[i].biases.y, initialization_sigma);
+      cppn[i].biases.e = malloc(cppn[i].biases.y * sizeof(float));
+      cppn[i].b_delt.e = calloc(cppn[i].b_delt.y, sizeof(float));
+      cppn[i].activations.e = calloc(cppn[i].activations.y, sizeof(float));
+      
+      randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
+      randomize(cppn[i].biases.e, cppn[i].biases.y, initialization_sigma);
+    }
   }
 
-  matrix res = feedforward(cppn, num_layers);
-  printf("%f", res.e[0]);
+  return SUCCESS;
 }
 
 void sighandler(int signo) {
@@ -174,9 +181,15 @@ void display() {
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      framebuffer[i][j][1] = (float) (j + frame_count) / (WIDTH + SECONDS * FPS);
-      framebuffer[i][j][2] = (float) (i + frame_count) / (HEIGHT + SECONDS * FPS);
-      //framebuffer[i][j][3] = (unsigned char) j + i;
+      cppn[0].activations.e[0] = (float) j / WIDTH;
+      cppn[0].activations.e[1] = (float) i / HEIGHT;
+      cppn[0].activations.e[2] = (float) frame_count / (SECONDS * FPS);
+      
+      matrix res = feedforward(cppn, num_layers);
+      
+      framebuffer[i][j][0] = res.e[0];
+      framebuffer[i][j][1] = res.e[1];
+      framebuffer[i][j][2] = res.e[2];
     }
   }
   int tex_id = 0;
@@ -234,6 +247,9 @@ void timer(int value) {
 }
 
 int main(int argc, char **argv) {
+  printf("Hello deepnet");
+  retfail(init_neural_network());
+
   printf("Hello sound\n");
   retfail(init_portaudio());
   retfail(signal(SIGINT, sighandler) == SIG_ERR);
@@ -250,5 +266,5 @@ int main(int argc, char **argv) {
   glutDisplayFunc(&display);
   glutTimerFunc(0, &timer, 0);
   glutMainLoop(); // never returns
-  return 0;
+  return SUCCESS;
 }

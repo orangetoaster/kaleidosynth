@@ -21,12 +21,7 @@
 #include <sys/stat.h> // for open
 #include <unistd.h> // for read
 
-typedef int FD;
-typedef unsigned char uchar;
-typedef int retcode;
-static const retcode SUCCESS = 0;
-static const retcode FAIL = -1;
-#define retfail(CONDITION) { retcode __retval = CONDITION ; if(__retval == FAIL) { return __retval; } }
+#include "err.h"
 
 typedef struct matrix {
   size_t x, y;
@@ -106,24 +101,6 @@ retcode load_mnist(struct dataset *dat, char *image_file_name, char *label_file_
     return FAIL;
   }
 
-  return SUCCESS;
-}
-// Don't show the gradient, just show the values
-retcode print_mnist_char(struct dataset *dat, int i) {
-  for (int j = 0; j < 28; ++j) {
-    for (int k = 0; k < 28; ++k) {
-      if (dat->pixels[i * (dat->columns * dat->rows) + j * dat->columns + k] > 0) {
-        putchar('X');
-
-      } else {
-        putchar(' ');
-      }
-    }
-
-    putchar('\n');
-  }
-
-  putchar('\n');
   return SUCCESS;
 }
 void matrix_zero(struct matrix mat) {
@@ -235,7 +212,6 @@ matrix feedforward(struct neural_layer layers[], const int neural_layers) {
     layers[j].activate(layers[j].activations, layers[j].biases);
   }
 
-  // check the predicted label
   const int last = neural_layers - 1;
   return layers[last].activations;
 }
