@@ -157,6 +157,9 @@ void sighandler(int signo) {
 #include <GL/glu.h>
 #endif
 
+/// VIDEO GLOBALS ///
+static volatile int frame_count = 0;
+static const int SECONDS = 3;
 
 #define FPS 60
 #define WIDTH 640
@@ -171,8 +174,8 @@ void display() {
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      framebuffer[i][j][1] = (float) j / WIDTH;
-      framebuffer[i][j][2] = (float) i / HEIGHT;
+      framebuffer[i][j][1] = (float) (j + frame_count) / (WIDTH + SECONDS * FPS);
+      framebuffer[i][j][2] = (float) (i + frame_count) / (HEIGHT + SECONDS * FPS);
       //framebuffer[i][j][3] = (unsigned char) j + i;
     }
   }
@@ -218,8 +221,6 @@ void display() {
   glutSwapBuffers(); /* calls glFlush() */
 }
 
-static volatile int frame_count = 0;
-static const int SECONDS = 3;
 void timer(int value) {
   glutPostRedisplay();
   glutTimerFunc(1000 / FPS, &timer, value);
