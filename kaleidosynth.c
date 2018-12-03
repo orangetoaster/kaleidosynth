@@ -42,8 +42,10 @@ static int audio_buffer_sync_callback(
     if( audio_buf->left_phase >= TABLE_SIZE ) {
       audio_buf->left_phase -= TABLE_SIZE;
       audio_buf->freq_domain[audio_buf->note_pos] = 0;
+      audio_buf->freq_domain[TABLE_SIZE - audio_buf->note_pos -1] = 0;
       audio_buf->note_pos = (audio_buf->note_pos + 8) % (TABLE_SIZE);
-      audio_buf->freq_domain[audio_buf->note_pos] = 16;
+      audio_buf->freq_domain[audio_buf->note_pos] = 32;
+      audio_buf->freq_domain[TABLE_SIZE - audio_buf->note_pos -1] = -32;
       kiss_fftri(audio_buf->cfg, (kiss_fft_cpx *)audio_buf->freq_domain, audio_buf->buffer_data);
     }
   }
@@ -146,16 +148,70 @@ void sighandler(int signo) {
   }
 }
 
-int main() {
+#include <GL/glut.h>
+#include <GL/gl.h>
+#include <GL/glu.h>
+
+#define FPS 60
+
+void display() {
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glEnable(GL_TEXTURE_2D);
+
+  glBegin(GL_QUADS);
+    glVertex3f(-1,-1,0);
+    glVertex3f(1,-1,0);
+    glVertex3f(1,1,0);
+    glVertex3f(-1,1,0);
+  glEnd();
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  gluOrtho2D(0, 1, 0, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
+  glRasterPos3f(.10, .90, 0);
+
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+
+  glutSwapBuffers(); /* calls glFlush() */
+}
+
+static volatile int frame_count = 0;
+static const int SECONDS = 3;
+void timer(int value) {
+  glutPostRedisplay();
+  glutTimerFunc(1000 / FPS, &timer, value);
+  frame_count ++;
+  if(frame_count > 60 * SECONDS) {
+    // cleanup sound //
+    shutdown();
+    printf("All good.\n");
+    exit(0);
+  }
+}
+
+int main(int argc, char **argv) {
   printf("Hello sound\n");
   retfail(init_portaudio());
   retfail(signal(SIGINT, sighandler) == SIG_ERR);
   retfail(Pa_StartStream(stream));
-  float seconds = 30.0;;
-  Pa_Sleep(seconds * 1000 );
-  Pa_Terminate();
-  shutdown();
+  
+  printf("Hello video\n");
+  glutInit(&argc, argv);
+  glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
+  glutInitWindowSize(800, 600);
 
-  printf("All good.\n");
+  glutCreateWindow("Kaleidosynth");
+  //glutFullScreen();
+
+  glutDisplayFunc(&display);
+  glutTimerFunc(0, &timer, 0);
+  glutMainLoop(); // never returns
   return 0;
 }
