@@ -6,6 +6,7 @@
 #include <signal.h>
 #include "kiss_fftr.h"
 #include "err.h"
+#include <time.h>
 
 #define TABLE_SIZE 2048
 typedef struct {
@@ -19,6 +20,18 @@ typedef struct {
 /// AUDIO GLOBALS ///  
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
+
+/// VIDEO GLOBALS ///
+static volatile int frame_count = 0;
+static volatile int lastframe = 0;
+static volatile clock_t lasttime = 0;
+static const int SECONDS = 3;
+
+#define FPS 60
+#define WIDTH 640
+#define HEIGHT 480
+// RGB = 4
+#define COLOURS 3
 
 // This can be called at interrupt level, so nothing fancy, no malloc/free
 static int audio_buffer_sync_callback(
@@ -99,45 +112,51 @@ static int shutdown() {
 
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = 3; // x, y, frame
-static const int hidden_neurons = 3, output_neurons = 3; // RGB
+static const int nn_batch_size = HEIGHT * WIDTH;
+static const int hidden_neurons = 30, output_neurons = 3; // RGB
 static const float initialization_sigma = 0.50;
 static const int epochs = 10;
 static const int num_layers = 3; // THIS MUST MATCH BELOW
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
-    .activations = { .x = 1, .y = nn_input_size, .e = NULL },
+    .activations = { .x = nn_batch_size, .y = nn_input_size, .e = NULL },
+    .zvals = { .x = nn_batch_size, .y = nn_input_size, .e = NULL },
     .activate = NULL, .backprop = NULL,
   }, {
     .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
     .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
-    .biases = { .x = 1, .y = hidden_neurons, .e = NULL },
-    .b_delt = { .x = 1, .y = hidden_neurons, .e = NULL },
-    .activations = { .x = 1, .y = hidden_neurons, .e = NULL },
-    .activate = &sigmoid_activate,
-    .backprop = &sigmoid_deriv,
+    .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+    .activate = &gaussian_activate,
+    .backprop = &gaussian_prime,
   }, {
     .weights = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
     .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
-    .biases = { .x = 1, .y = output_neurons, .e = NULL },
-    .b_delt = { .x = 1, .y = output_neurons, .e = NULL },
-    .activations = { .x = 1, .y = output_neurons, .e = NULL },
-    .activate = &sigmoid_activate,
-    .backprop = &sigmoid_deriv,
+    .biases = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
+    .b_delt = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
+    .activations = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
+    .zvals = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
+    .activate = &gaussian_activate,
+    .backprop = &gaussian_prime,
   },
 };
 
 static int init_neural_network() {
   for (int i = 0; i < num_layers; ++i) {
     if(i == 0) {
-      cppn[i].activations.e = malloc(nn_input_size * sizeof(float));
+      cppn[i].activations.e = malloc(nn_batch_size * nn_input_size * sizeof(float));
+      cppn[i].zvals.e = malloc(nn_batch_size * nn_input_size * sizeof(float));
     } else {
       cppn[i].weights.e = malloc(cppn[i].weights.x * cppn[i].weights.y * sizeof(float));
       cppn[i].w_delt.e = calloc(cppn[i].w_delt.x * cppn[i].w_delt.y, sizeof(float));
 
-      cppn[i].biases.e = malloc(cppn[i].biases.y * sizeof(float));
-      cppn[i].b_delt.e = calloc(cppn[i].b_delt.y, sizeof(float));
-      cppn[i].activations.e = calloc(cppn[i].activations.y, sizeof(float));
+      cppn[i].biases.e = malloc(cppn[i].biases.x * cppn[i].biases.y * sizeof(float));
+      cppn[i].b_delt.e = calloc(cppn[i].b_delt.x * cppn[i].b_delt.y, sizeof(float));
+      cppn[i].activations.e = calloc(cppn[i].activations.x * cppn[i].activations.y, sizeof(float));
+      cppn[i].zvals.e = calloc(cppn[i].zvals.x * cppn[i].zvals.y, sizeof(float));
       
       randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
       randomize(cppn[i].biases.e, cppn[i].biases.y, initialization_sigma);
@@ -164,15 +183,6 @@ void sighandler(int signo) {
 #include <GL/glu.h>
 #endif
 
-/// VIDEO GLOBALS ///
-static volatile int frame_count = 0;
-static const int SECONDS = 3;
-
-#define FPS 60
-#define WIDTH 640
-#define HEIGHT 480
-// RGB = 4
-#define COLOURS 3
 void display() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
@@ -181,17 +191,14 @@ void display() {
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      cppn[0].activations.e[0] = (float) j / WIDTH;
-      cppn[0].activations.e[1] = (float) i / HEIGHT;
-      cppn[0].activations.e[2] = (float) frame_count / (SECONDS * FPS);
-      
-      matrix res = feedforward(cppn, num_layers);
-      
-      framebuffer[i][j][0] = res.e[0];
-      framebuffer[i][j][1] = res.e[1];
-      framebuffer[i][j][2] = res.e[2];
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 0] = (float) j / WIDTH;
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) i / HEIGHT;
+      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) frame_count / (SECONDS * FPS);
     }
   }
+
+  matrix res = feedforward(cppn, num_layers);
+
   int tex_id = 0;
 
   glGenTextures(1, &tex_id);
@@ -200,7 +207,7 @@ void display() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
-               GL_FLOAT, framebuffer);
+               GL_FLOAT, res.e);
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
 
   glBegin(GL_QUADS);
@@ -230,7 +237,15 @@ void display() {
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
   glMatrixMode(GL_MODELVIEW);
-
+ 
+  // only print once per second
+  clock_t curtime = clock();
+  if ( curtime - lasttime >= CLOCKS_PER_SEC ){ 
+    printf("FPS: %d\n", (frame_count - lastframe));
+    lastframe = frame_count;
+    lasttime = curtime;
+  }
+  
   glutSwapBuffers(); /* calls glFlush() */
 }
 

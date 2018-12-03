@@ -8,6 +8,7 @@
   static const int epochs = 20;
   float learning_rate = 0.01f, decay = 1.001f;
  */
+#include <cblas.h>
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h> // for read
@@ -28,8 +29,8 @@ typedef struct matrix {
   float *e;
 } matrix;
 struct neural_layer {
-  matrix weights, w_delt, biases, b_delt, activations;
-  void(*activate)(matrix activations, matrix biases);
+  matrix weights, w_delt, biases, b_delt, activations, zvals;
+  float(*activate)(float zval, float bias);
   float(*backprop)(float weight);
 };
 struct dataset {
@@ -110,42 +111,30 @@ void matmul(struct matrix a, struct matrix b, struct matrix result) {
   assert(a.y == b.x);
   assert(result.x == a.x);
   assert(result.y == b.y);
-
-  for (size_t i = 0; i < a.x; i++) {
-    for (size_t j = 0; j < a.y; j++) {
-      for (size_t k = 0; k < b.y; k ++) {
-        result.e[i * result.y + k] += a.e[i * a.y + j] * b.e[j * b.y + k];
-      }
-    }
-  }
+  float alpha = 1.0;
+  float beta = 0.0;
+  cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, result.x, result.y,
+    a.y, alpha, a.e, a.y, b.e, b.y, beta, result.e, result.y);
 }
 // a * T(b)
 void matmulT(struct matrix a, struct matrix b, struct matrix result) {
   assert(a.y == b.y);
   assert(result.x == a.x);
   assert(result.y == b.x);
-
-  for (size_t i = 0; i < a.x; i++) {
-    for (size_t j = 0; j < a.y; j++) {
-      for (size_t k = 0; k < b.x; k ++) {
-        result.e[i * result.y + k] += a.e[i * a.y + j] * b.e[k * b.y + j];
-      }
-    }
-  }
+  float alpha = 1.0;
+  float beta = 0.0;
+  cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, result.x, result.y, a.y,
+    alpha, a.e, a.y, b.e, b.y, beta, result.e, result.y);
 }
 // T(a) * b
 void Tmatmul(struct matrix a, struct matrix b, struct matrix result) {
   assert(a.x == b.x);
   assert(result.x == a.y);
   assert(result.y == b.y);
-
-  for (size_t i = 0; i < a.y; i++) {
-    for (size_t j = 0; j < a.x; j++) {
-      for (size_t k = 0; k < b.y; k ++) {
-        result.e[i * result.y + k] += a.e[j * a.y + i] * b.e[j * b.y + k];
-      }
-    }
-  }
+  float alpha = 1.0;
+  float beta = 0.0;
+  cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, result.x, result.y, a.x,
+    alpha, a.e, a.y, b.e, b.y, beta, result.e, result.y);
 }
 // gaussian distribution with a standard deviation of sigma and an average of mu
 // generated using mox-muller transform
@@ -184,34 +173,29 @@ void shuffle(int *data, const size_t count) {
     data[i] ^= data[j];
   }
 }
-void sigmoid_activate(matrix activations, matrix biases) {
-  assert(activations.x == 1);
-  assert(activations.y == biases.y);
-
-  for (int i = 0; i < activations.y; ++i) {
-    float sum_term = activations.e[i] + biases.e[i];
-
-    if (sum_term > 0) { // minimize numerical error
-      activations.e[i] = 1.0f / (1.0 + expf(-1 * sum_term));
-
-    } else {
-      float z = exp(sum_term);
-      activations.e[i] = z / (1 + z);
-    }
-  }
+float gaussian_activate(float zval, float bias) {
+  float sum_term = zval + bias;
+  return exp(-1 * sum_term * sum_term);
 }
-float sigmoid_deriv(float result) {
-  return result * (1.0f - result);
+float gaussian_prime(float zval, float activation) {
+  return -2 * zval * activation;
 }
 
-matrix feedforward(struct neural_layer layers[], const int neural_layers) {
+matrix feedforward(struct neural_layer layer[], const int neural_layers) {
   // propigate the layers
   for (int j = 1; j < neural_layers; ++j) {
-    matrix_zero(layers[j].activations);
-    matmul(layers[j - 1].activations, layers[j].weights, layers[j].activations);
-    layers[j].activate(layers[j].activations, layers[j].biases);
+    matrix_zero(layer[j].zvals);
+    matrix_zero(layer[j].activations);
+    matmul(layer[j - 1].activations, layer[j].weights, layer[j].zvals);
+
+    for (int i = 0; i < layer[j].activations.x; ++i) {
+      for (int k = 0; k < layer[j].activations.y; ++k) {
+        layer[j].activations.e[i * layer[j].activations.y + k] =
+          layer[j].activate(layer[j].zvals.e[i * layer[j].zvals.y + k], layer[j].biases.e[k]);
+      }
+    }
   }
 
   const int last = neural_layers - 1;
-  return layers[last].activations;
+  return layer[last].activations;
 }
