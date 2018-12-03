@@ -159,8 +159,8 @@ void sighandler(int signo) {
 
 
 #define FPS 60
-#define HEIGHT 640
-#define WIDTH 480
+#define HEIGHT 255
+#define WIDTH 255
 // RGB = 4
 #define COLOURS 3
 void display() {
@@ -169,10 +169,10 @@ void display() {
 
   unsigned char framebuffer[HEIGHT][WIDTH][COLOURS] = { 0 };
 
-  for(int i=0; i < HEIGHT; ++i) {
-    for(int j=0; j < WIDTH; ++j) {
-      framebuffer[i][j][1] = (unsigned char) j;
-      framebuffer[i][j][2] = (unsigned char) i;
+  for(unsigned char i=0; i < HEIGHT; ++i) {
+    for(unsigned char j=0; j < WIDTH; ++j) {
+      framebuffer[i][j][1] = j;
+      framebuffer[i][j][2] = i;
       //framebuffer[i][j][3] = (unsigned char) j + i;
     }
   }
@@ -183,7 +183,7 @@ void display() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, HEIGHT, WIDTH, 0, GL_RGB,
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
                GL_UNSIGNED_BYTE, framebuffer);
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
 
