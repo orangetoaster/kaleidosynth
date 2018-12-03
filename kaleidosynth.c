@@ -144,6 +144,7 @@ void sighandler(int signo) {
     printf("Shutting down...");
     shutdown();
   }
+}
 
 int main() {
   printf("Hello sound\n");
