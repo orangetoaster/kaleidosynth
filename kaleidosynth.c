@@ -159,18 +159,18 @@ void sighandler(int signo) {
 
 
 #define FPS 60
-#define WIDTH 255
-#define HEIGHT 255
+#define WIDTH 640
+#define HEIGHT 480
 // RGB = 4
 #define COLOURS 3
 void display() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
 
-  float framebuffer[WIDTH][HEIGHT][COLOURS] = { 0 };
+  float framebuffer[HEIGHT][WIDTH][COLOURS] = { 0 };
 
-  for(int i=0; i < WIDTH; ++i) {
-    for(int j=0; j < HEIGHT; ++j) {
+  for(int i=0; i < HEIGHT; ++i) {
+    for(int j=0; j < WIDTH; ++j) {
       framebuffer[i][j][1] = (float) j / WIDTH;
       framebuffer[i][j][2] = (float) i / HEIGHT;
       //framebuffer[i][j][3] = (unsigned char) j + i;
