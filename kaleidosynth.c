@@ -105,7 +105,6 @@ static int neural_network() {
   static const int hidden_neurons = 30, output_neurons = 10;
   static const float initialization_sigma = 0.50;
   static const int epochs = 10;
-  float learning_rate = 0.01f, decay = 1.001f;
   struct neural_layer cppn[] = {
     {
       .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -148,9 +147,16 @@ void sighandler(int signo) {
   }
 }
 
-#include <GL/glut.h>
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#include <GLUT/glut.h>
+#include <OpenGL/glu.h>
+#else
 #include <GL/gl.h>
+#include <GL/glut.h>
 #include <GL/glu.h>
+#endif
+
 
 #define FPS 60
 
