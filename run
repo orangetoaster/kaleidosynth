@@ -1,2 +1,2 @@
 #!/bin/bash
-gcc -l portaudio -lrt -lm -lasound -ljack -pthread main.c -o bin/main && ./bin/main
+gcc -DDEBUG -g -Wall -l portaudio -lrt -lm -lasound -ljack -pthread main.c kiss_fftr.c kiss_fft.c -o bin/main && ./bin/main
