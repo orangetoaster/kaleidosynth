@@ -228,16 +228,17 @@ void inplace_1d_convolve(
     float* kernel,
     int kernel_width
     ) {
-  int offset = - kernel_width / 2;
   float buff[source_width];
-  memset(buff, 0, source_width);
+  for(int i = 0; i < source_width; ++i){
+      buff[i] = 0.;
+  }
 
-  for(int i = 0; i < source_width; i++, offset++) {
-    for(int j = 0; j < kernel_width; j++) {
-      const idx = i + j + offset;
-      if(idx > 0 && idx < source_width) {
-        buff[i] += source[i] * kernel[j];
-      }
+  for(int i = 0; i < source_width; i++) {
+    int k_min = fmax(i - kernel_width / 2, 0);
+    int k_max = fmin(i + kernel_width / 2 + 1, source_width);
+    for(int j = k_min; j < k_max; j++) {
+      buff[i] += source[j] * kernel[j - k_min];
+      //printf("%d %d %d :: %f %f\n", i, j, j - k_min, buff[i], source[i]);
     }
   }
   memcpy(source, buff, source_width);
@@ -270,8 +271,8 @@ void display() {
     }
   }
 
-  float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2 };
-  //inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
+  float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2};
+ inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
