@@ -12,7 +12,7 @@
 
 /// AUDIO GLOBALS ///  
 static volatile int CLAMP_KEY = INT_MAX;
-#define AUDIO_BAND WIDTH
+#define AUDIO_BAND (WIDTH *8)
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
@@ -149,10 +149,10 @@ static int audio_buffer_sync_callback(
       }
       int p = audio_buf->note_pos;
       
-      for (int j=0; j < AUDIO_BAND; ++j) {
-        audio_buf->freq_data[j] = nn_l[p][j][0];
+      for (int j=0; j < AUDIO_BAND/8; ++j) {
+        audio_buf->freq_data[j*4] = nn_l[p][j][0];
         if(COLOURS == 3) {
-          audio_buf->freq_data[j] += nn_l[p][j][1] + nn_l[p][j][2];
+          audio_buf->freq_data[j*4] += nn_l[p][j][1] + nn_l[p][j][2];
         }
       }
 
