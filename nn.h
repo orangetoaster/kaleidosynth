@@ -1,3 +1,5 @@
+#ifndef NN_H
+#define NN_H
 /* Copyright (C) 2017 Lorne Schell All rights reserved. */
 /* This is a concise sigmoid nn over mnist in c for illustration/education purposes.
    Note that it's single core and doesn't have some basic features such as minibatch*/
@@ -8,7 +10,12 @@
   static const int epochs = 20;
   float learning_rate = 0.01f, decay = 1.001f;
  */
+#ifdef __APPLE__
+#include <Accelerate/Accelerate.h>
+#else
 #include <cblas.h>
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h> // for read
@@ -199,3 +206,4 @@ matrix feedforward(struct neural_layer layer[], const int neural_layers) {
   const int last = neural_layers - 1;
   return layer[last].activations;
 }
+#endif
