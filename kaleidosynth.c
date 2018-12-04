@@ -238,12 +238,9 @@ void inplace_1d_convolve(
     int k_max = fmin(i + kernel_width / 2 + 1, source_width);
     for(int j = k_min; j < k_max; j++) {
       buff[i] += source[j] * kernel[j - k_min];
-      if( source[j] > 0.01) {
-        //printf("%d %d %d :: %f %f %f\n", i, j, j - k_min, buff[i], source[j], kernel[j - k_min]);
-      }
     }
   }
-  memmove(source, buff, source_width);
+  memmove(source, buff, source_width* sizeof(float));
 }
 
 void display() {
@@ -274,11 +271,13 @@ void display() {
     }
   }
 
-  float kernel[5] = { 0.06136,	0.24477,	0.38774,	0.24477,	0.06136};
-  inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
-
-  //for(int i = 0; i < AUDIO_BAND; i++) printf("%f\n", harmonics[i]);
-  //exit(0);
+  float gaussian_kernel[] = 
+    { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
+  int glen= sizeof(gaussian_kernel) / sizeof(float);
+  for( int i =0; i < glen; ++i) {
+    gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
+  }
+  inplace_1d_convolve(harmonics, (int) AUDIO_BAND, gaussian_kernel, glen);
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
