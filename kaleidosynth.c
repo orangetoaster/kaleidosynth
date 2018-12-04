@@ -10,6 +10,7 @@
 #include <time.h>
 
 /// AUDIO GLOBALS ///  
+static volatile int CLAMP_KEY = 0;
 #define AUDIO_BAND WIDTH
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
@@ -283,12 +284,14 @@ void display() {
   }
   inplace_1d_convolve(harmonics, (int) AUDIO_BAND, gaussian_kernel, glen);
 
-  for(int i=0; i < HEIGHT; ++i) {
-    for(int j=0; j < WIDTH; ++j) {
-      output[i][j][0] *= harmonics[j];
-      if(COLOURS == 3) {
-        output[i][j][1] *= harmonics[j];
-        output[i][j][2] *= harmonics[j];
+  if(CLAMP_KEY != 0) {
+    for(int i=0; i < HEIGHT; ++i) {
+      for(int j=0; j < WIDTH; ++j) {
+        output[i][j][0] *= harmonics[j];
+        if(COLOURS == 3) {
+          output[i][j][1] *= harmonics[j];
+          output[i][j][2] *= harmonics[j];
+        }
       }
     }
   }
@@ -326,6 +329,10 @@ int keyboard_callback(unsigned char key, int x, int y) {
   } else if (key == 27) { // escape
     shutdown();
     exit(0);
+  } else if (key == 'a') {
+    CLAMP_KEY = 1;
+  } else if (key == ' ') {
+    CLAMP_KEY = 0;
   }
   return SUCCESS;
 }
