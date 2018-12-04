@@ -126,11 +126,8 @@ static int audio_buffer_sync_callback(
   float *out = (float*)outputBuffer;
   unsigned long i;
 
-  for( i=0; i<framesPerBuffer/2; i++ ) {
-    *out++ = audio_buf->buffer_data[i] 
-      * volumeMultiplier;  // left channel
-    *out++ = (audio_buf->buffer_data[i] +  audio_buf->buffer_data[(i+1)%AUDIO_BAND])/2
-      * volumeMultiplier;  // left channel
+  for( i=0; i<framesPerBuffer; i++ ) {
+    *out++ = audio_buf->buffer_data[i] * volumeMultiplier;  // left channel
 
     audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning
@@ -157,9 +154,14 @@ static int audio_buffer_sync_callback(
         }
       }
 
+      float fft_buff[AUDIO_BAND];
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data,
-        audio_buf->buffer_data);
+        fft_buff);
+
+        for (int i=0; i < AUDIO_BAND; ++i) {
+          audio_buf->buffer_data[i] = fft_buff[i] * 0.5 + audio_buf->buffer_data[i] * 0.5;
+        }
     }
   }
   return paContinue;
@@ -240,7 +242,7 @@ void inplace_1d_convolve(
       buff[i] += source[j] * kernel[j - k_min];
     }
   }
-  memmove(source, buff, source_width* sizeof(float));
+  memmove(source, buff, source_width * sizeof(float));
 }
 
 void display() {
@@ -255,18 +257,20 @@ void display() {
   }
 
   matrix res = feedforward(cppn, num_layers);
+  
   float (*output)[WIDTH][COLOURS] = 
     (void *) cppn[last_layer].activations.e;
 
+  const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
   float harmonics[AUDIO_BAND];
   for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
-    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+    { 440 , 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
 
   for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
-    float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
-    for(; (int) round(bin) < AUDIO_BAND; bin *= 2.0) {
+    float bin = (freqs[note]) / (SAMPLE_RATE/ (float) AUDIO_BAND);
+    for(; (int) round(bin) < BANDPASS; bin *= 2.0) {
       harmonics[(int) round(bin)] = 1.0;
     }
   }
