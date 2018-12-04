@@ -218,10 +218,6 @@ static int init_portaudio() {
   return SUCCESS;
 }
 
-float bin_for_key(float key) {
-  return key / (SAMPLE_RATE/ (float) AUDIO_BAND);
-}
-
 void inplace_1d_convolve(
     float* source,
     int source_width,
@@ -258,30 +254,31 @@ void display() {
   float (*output)[WIDTH][COLOURS] = 
     (void *) cppn[last_layer].activations.e;
 
-  const NUM_HARMONICS = 12;
-  float A_bin = bin_for_key(440);
   int harmonics[AUDIO_BAND] = { 0 };
-  for(float i = A_bin ; i < AUDIO_BAND; i *= 2) {
-    int key = round(i);
-    harmonics[key] = 1;
+  float freqs[] = // key of A
+   // A    B       C#      D       E       F#      G#
+    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+
+  for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
+    float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
+    for(; (int) round(bin) < AUDIO_BAND; bin *= 2.0) {
+      fprintf(stderr, "BIN: %.2f\r", bin);
+      harmonics[(int) round(bin)] = 1.0;
+    }
   }
 
   float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2 };
-  inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
-  for(int i = 0 ; i < AUDIO_BAND; i ++) {
-    printf("%0.1f ", harmonics[i]);
-  }
-  printf("\n");
-
+  //inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
       output[i][j][0] *= harmonics[j];
-      output[i][j][1] *= harmonics[j];
-      output[i][j][2] *= harmonics[j];
+      if(COLOURS == 3) {
+        output[i][j][1] *= harmonics[j];
+        output[i][j][2] *= harmonics[j];
+      }
     }
   }
-
   render_buffer(res);
 
   // only print once per second

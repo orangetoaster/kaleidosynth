@@ -13,9 +13,9 @@
 #include "nn.h"
 
 #define FPS 12
-#define WIDTH 640
-#define HEIGHT 320
-#define COLOURS 3
+#define WIDTH 320
+#define HEIGHT 240
+#define COLOURS 1
 #define INPUT_DIM 3
 
 /// VIDEO GLOBALS ///
