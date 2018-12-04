@@ -189,7 +189,7 @@ static int init_portaudio() {
   for (int i=0; i < num_devs ; ++ i) {
     di = Pa_GetDeviceInfo(i);
     printf("Available Adev: %s\n", di->name);
-    if(strcmp(di->name, "pulse") == 0) {
+    if(strcmp(di->name, "default") == 0) {
       printf("Choosing this device\n");
       chosen_device = i;
     }
@@ -216,29 +216,6 @@ static int init_portaudio() {
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
 
   return SUCCESS;
-}
-
-static int shutdown() {
-    retfail(Pa_StopStream( stream ));
-    retfail(Pa_CloseStream( stream ));
-    return SUCCESS;
-}
-
-void sighandler(int signo) {
-  if (signo == SIGKILL || signo == SIGINT) {
-    printf("Shutting down...");
-    shutdown();
-    exit(0);
-  }
-}
-
-int keyboard_callback(unsigned char key, int x, int y) {
-  if(key == 'R') { // Reseed
-    seed_network();
-  } else if (key == 27) { // escape
-    shutdown();
-    exit(0);
-  }
 }
 
 float bin_for_key(float key) {
@@ -278,7 +255,8 @@ void display() {
   }
 
   matrix res = feedforward(cppn, num_layers);
-  float (*output)[WIDTH][COLOURS] = (void *) cppn[last_layer].activations.e;
+  float (*output)[WIDTH][COLOURS] = 
+    (void *) cppn[last_layer].activations.e;
 
   const NUM_HARMONICS = 12;
   float A_bin = bin_for_key(440);
@@ -288,13 +266,12 @@ void display() {
     harmonics[key] = 1;
   }
 
-  float kernel[5] = { 0.2 };
+  float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2 };
   inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
   for(int i = 0 ; i < AUDIO_BAND; i ++) {
-    printf("%f ", harmonics[i]);
+    printf("%0.1f ", harmonics[i]);
   }
-    printf("\n");
-    exit(0);
+  printf("\n");
 
 
   for(int i=0; i < HEIGHT; ++i) {
@@ -304,9 +281,6 @@ void display() {
       output[i][j][2] *= harmonics[j];
     }
   }
-
-
-
 
   render_buffer(res);
 
@@ -321,6 +295,31 @@ void display() {
   
 }
 
+int shutdown() {
+    retfail(Pa_StopStream( stream ));
+    retfail(Pa_CloseStream( stream ));
+    return SUCCESS;
+}
+
+void sighandler(int signo) {
+  if (signo == SIGKILL || signo == SIGINT) {
+    printf("Shutting down...");
+    shutdown();
+    exit(0);
+  }
+}
+
+int keyboard_callback(unsigned char key, int x, int y) {
+  printf("Keypress: %d\n", key);
+  if(key == 'R') { // Reseed
+    seed_network();
+  } else if (key == 27) { // escape
+    shutdown();
+    exit(0);
+  }
+  return SUCCESS;
+}
+
 void timer(int value) {
   glutPostRedisplay();
   glutTimerFunc(1000 / FPS, &timer, value);
@@ -332,7 +331,6 @@ void timer(int value) {
     exit(0);
   }
 }
-
 
 int main(int argc, char **argv) {
   srand(time(NULL));
@@ -347,10 +345,10 @@ int main(int argc, char **argv) {
   
   printf("Hello video\n");
   retfail(init_display(argc, argv));
-
+  
+  glutDisplayFunc(&display);
   glutTimerFunc(0, &timer, 0);
   glutKeyboardFunc(&keyboard_callback);
-  glutDisplayFunc(&display);
 
   glutMainLoop(); // never returns
   return SUCCESS;

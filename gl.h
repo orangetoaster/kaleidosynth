@@ -23,9 +23,6 @@ static volatile int frame_count = 0;
 static volatile int lastframe = 0;
 static const int SECONDS = 30;
 static volatile int SHIFT_COLOURS = 0;
-
-
-
 static int framebuffer_id = 0;
 
 void create_framebuffer() {
