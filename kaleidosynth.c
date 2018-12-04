@@ -23,7 +23,7 @@ typedef struct {
 } LRAudioBuf;
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
-static const float volumeMultiplier = 0.001f;
+static const float volumeMultiplier = 0.01f;
 static const float SAMPLE_RATE = 44100;
 
 static volatile clock_t lasttime = 0;
@@ -126,8 +126,12 @@ static int audio_buffer_sync_callback(
   float *out = (float*)outputBuffer;
   unsigned long i;
 
-  for( i=0; i<framesPerBuffer; i++ ) {
-    *out++ = audio_buf->buffer_data[audio_buf->left_phase] * volumeMultiplier;  // left channel
+  for( i=0; i<framesPerBuffer/2; i++ ) {
+    *out++ = audio_buf->buffer_data[i] 
+      * volumeMultiplier;  // left channel
+    *out++ = (audio_buf->buffer_data[i] +  audio_buf->buffer_data[(i+1)%AUDIO_BAND])/2
+      * volumeMultiplier;  // left channel
+
     audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning
     // down the screen
@@ -262,7 +266,6 @@ void display() {
   for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
     float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
     for(; (int) round(bin) < AUDIO_BAND; bin *= 2.0) {
-      fprintf(stderr, "BIN: %.2f\r", bin);
       harmonics[(int) round(bin)] = 1.0;
     }
   }
