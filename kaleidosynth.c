@@ -125,10 +125,10 @@ static int audio_buffer_sync_callback(
 
   LRAudioBuf *audio_buf = (LRAudioBuf*)context;
   float *out = (float*)outputBuffer;
-  unsigned long i;
 
-  for( i=0; i<framesPerBuffer; i++ ) {
-    *out++ = audio_buf->buffer_data[i] * volumeMultiplier;  // left channel
+  for(unsigned long i=0; i<framesPerBuffer; i++ ) {
+    *out++ = audio_buf->buffer_data[audio_buf->left_phase] 
+      * volumeMultiplier;  // left channel
 
     audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning
@@ -267,10 +267,10 @@ void display() {
   for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
-    { 440 , 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+    { 440}; //, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
 
   for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
-    float bin = (freqs[note]) / (SAMPLE_RATE/ (float) AUDIO_BAND);
+    float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
     for(; (int) round(bin) < BANDPASS; bin *= 2.0) {
       harmonics[(int) round(bin)] = 1.0;
     }
@@ -280,7 +280,7 @@ void display() {
     { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
   int glen= sizeof(gaussian_kernel) / sizeof(float);
   for( int i =0; i < glen; ++i) {
-    gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
+    gaussian_kernel[i] = sqrt(gaussian_kernel[i]);
   }
   inplace_1d_convolve(harmonics, (int) AUDIO_BAND, gaussian_kernel, glen);
 
