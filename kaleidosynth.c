@@ -25,6 +25,7 @@ static const int SECONDS = 30;
 #define AUDIO_BAND WIDTH * COLOURS
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
+  kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
   int left_phase;
   int note_pos;
@@ -41,7 +42,7 @@ static const int hidden_neurons = 10, output_neurons = COLOURS;
 static const int epochs = 10;
 static const int num_layers = 3; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
-static const float initialization_sigma = 10 / num_layers;
+static const float initialization_sigma = 8 / num_layers;
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -122,28 +123,31 @@ static int audio_buffer_sync_callback(
     if( audio_buf->left_phase >= AUDIO_BAND ) {
       audio_buf->left_phase -= AUDIO_BAND;
       audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
+      int p = audio_buf->note_pos;
 
-      for(int j=0; j < AUDIO_BAND; ++j) {
-        audio_buf->freq_data[j] = 
-          nn_l[audio_buf->note_pos][j];
-      }
-/*      audio_buf->maxpos = 0;
-      audio_buf->freq_data[audio_buf->maxpos] = 0;
-      for (int j=0; j < AUDIO_BAND; ++j) { // scan for the max entry and play that note
-        if (cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + j] > 
-            cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos]) {
+      kiss_fftri(audio_buf->cfg, 
+        (kiss_fft_cpx *) &nn_l[p], 
+        audio_buf->buffer_data);
+
+      // Melody //
+      // scan for the max entry and play that note
+      for (int j=0; j < AUDIO_BAND; ++j) { 
+        if (nn_l[p][j] > nn_l[p][audio_buf->maxpos] &&
+            abs(nn_l[p][j]) > 0.1 // Only if it's loud enough to change
+           ) {
+          audio_buf->freq_data[audio_buf->maxpos] = 0;
           audio_buf->maxpos = j;
+          audio_buf->freq_data[audio_buf->maxpos] =
+            nn_l[p][audio_buf->maxpos];
         }
       }
-      audio_buf->freq_data[audio_buf->maxpos] = 1;
-        //cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos];
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data, 
-        audio_buf->buffer_data);
-*/
-      kiss_fftri(audio_buf->cfg, 
-        (kiss_fft_cpx *) &audio_buf->freq_data, 
-        audio_buf->buffer_data);
+        audio_buf->copy_buf);
+      for (int j=0; j < AUDIO_BAND; ++j) {
+        audio_buf->buffer_data[j] += audio_buf->copy_buf[j];
+      }
+
     }
   }
   return paContinue;
