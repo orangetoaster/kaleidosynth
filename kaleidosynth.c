@@ -12,31 +12,35 @@
 static volatile int frame_count = 0;
 static volatile int lastframe = 0;
 static volatile clock_t lasttime = 0;
-static const int SECONDS = 3;
+static const int SECONDS = 30;
 
 #define FPS 60
-#define WIDTH 640
-#define HEIGHT 480
+#define WIDTH 320
+#define HEIGHT 240
 // RGB = 4
 #define COLOURS 3
+#define INPUT_DIM 3
 
 /// AUDIO GLOBALS ///  
+#define AUDIO_BAND WIDTH
 typedef struct {
-  kiss_fft_scalar buffer_data[WIDTH]; // pre-buffer size
+  kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
+  kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
   int left_phase;
   int note_pos;
+  int maxpos;
   kiss_fftr_cfg cfg;
 } LRAudioBuf;
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
 
 /// NEURAL NETWORK GLOBALS ///
-static const int nn_input_size = 3; // x, y, frame
+static const int nn_input_size = INPUT_DIM; // x, y, frame
 static const int nn_batch_size = WIDTH * HEIGHT;
 static const int hidden_neurons = 10, output_neurons = COLOURS;
-static const float initialization_sigma = 3.00;
 static const int epochs = 10;
 static const int num_layers = 3; // THIS MUST MATCH BELOW
+static const float initialization_sigma = 10.00 / num_layers;
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -100,7 +104,7 @@ static int init_neural_network() {
 static int audio_buffer_sync_callback(
     const void *inputBuffer, // unused
     void *outputBuffer,
-    unsigned long framesPerBuffer, // This tends to be 64
+    unsigned long framesPerBuffer, // This is defined in setup 64
     const PaStreamCallbackTimeInfo* timeInfo, // unused
     PaStreamCallbackFlags stats, // unused
     void *context ) {
@@ -113,11 +117,21 @@ static int audio_buffer_sync_callback(
     *out++ = audio_buf->buffer_data[audio_buf->left_phase];  // left channel
     audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning down the screen
-    if( audio_buf->left_phase >= WIDTH ) {
-      audio_buf->left_phase -= WIDTH;
+    if( audio_buf->left_phase >= AUDIO_BAND ) {
+      audio_buf->left_phase -= AUDIO_BAND;
       audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
+      audio_buf->maxpos = 0;
+      audio_buf->freq_data[audio_buf->maxpos] = 0;
+      for (int j=0; j < AUDIO_BAND; ++j) { // scan for the max entry and play that note
+        if (cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + j] > 
+            cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos]) {
+          audio_buf->maxpos = j;
+        }
+      }
+      audio_buf->freq_data[audio_buf->maxpos] = 1;
+        //cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos];
       kiss_fftri(audio_buf->cfg, 
-        (kiss_fft_cpx *) &cppn[num_layers -1].activations.e[audio_buf->note_pos * WIDTH],
+        (kiss_fft_cpx *) &audio_buf->freq_data, 
         audio_buf->buffer_data);
     }
   }
@@ -139,7 +153,7 @@ static int init_portaudio() {
   
   // init the buzz with a real ifft
   memset(&audio_buf, 0, sizeof(audio_buf));
-  audio_buf.cfg = kiss_fftr_alloc(WIDTH, 1, NULL,NULL);
+  audio_buf.cfg = kiss_fftr_alloc(AUDIO_BAND, 1, NULL,NULL);
 
   retfail(Pa_Initialize());
 
@@ -156,8 +170,8 @@ static int init_portaudio() {
       NULL, // no input
       &outputParameters,
       44100, // sample rate
-      64, // sample frames per buffer
-      paClipOff,
+      256, // sample frames per buffer
+      paNoFlag,
       audio_buffer_sync_callback,
       &audio_buf )); // this is context in the callback
   
@@ -219,13 +233,13 @@ int init_display(int argc, char **argv) {
 }
 
 void display() {
-  float framebuffer[HEIGHT][WIDTH][COLOURS] = { 0 };
+  float (*fb)[WIDTH][COLOURS] = (void *) cppn[0].activations.e;
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 0] = (float) j / (WIDTH/2) -1.0;
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) i / (HEIGHT/2) -1.0;
-      cppn[0].activations.e[i * WIDTH + j * COLOURS + 1] = (float) frame_count / (SECONDS * FPS / 2) -1.0;
+      fb[i][j][0] = (float) j / (WIDTH/2) -1.0;
+      fb[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      fb[i][j][2] = (float) frame_count / (SECONDS * FPS / 2) -1.0;
     }
   }
 
@@ -248,24 +262,25 @@ void display() {
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
   
   glBegin(GL_QUADS);
-    glTexCoord2f (0.5f,0.5f);
-    glVertex3f(-1,-1,0);
+    glTexCoord2f( 1.0f, 1.0f);
+    glVertex3f  ( 1.0f, 1.0f,0.0f);
     
-    glTexCoord2f (0.0f,0.5f);
-    glVertex3f(1,-1,0);
+    glTexCoord2f( 0.0f, 1.0f);
+    glVertex3f  (-1.0f, 1.0f,0);
     
-    glTexCoord2f (0.0f,0.0f);
-    glVertex3f(1,1,0);
+    glTexCoord2f( 0.0f, 0.0f);
+    glVertex3f  (-1.0f,-1.0f,0);
     
-    glTexCoord2f (0.5f,0.0f);
-    glVertex3f(-1,1,0);
+    glTexCoord2f( 1.0f, 0.0f);
+    glVertex3f  ( 1.0f,-1.0f,0);
   glEnd();
 
 
   // only print once per second
   clock_t curtime = clock();
   if ( curtime - lasttime >= CLOCKS_PER_SEC ){ 
-    printf("FPS: %d\n", (frame_count - lastframe));
+    printf("FPS: %d\r", (frame_count - lastframe));
+    fflush(stdout);
     lastframe = frame_count;
     lasttime = curtime;
   }
