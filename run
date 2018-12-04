@@ -1,4 +1,4 @@
 #!/bin/bash
 mkdir -p good_bins/
-gcc -DDEBUG -g -Wall -lportaudio -lcblas -lrt -lm -lasound -ljack -pthread -lglut -lGL -lGLU kaleidosynth.c kiss_fftr.c kiss_fft.c -o bin/kaleidosynth && \
+gcc --fast-math -DDEBUG -g -Wall -lportaudio -lcblas -lrt -lm -lasound -ljack -pthread -lglut -lGL -lGLU kaleidosynth.c kiss_fftr.c kiss_fft.c -o bin/kaleidosynth && \
   (killall kaleidosynth ; bin/kaleidosynth) #cp ./bin/kaleidosynth good_bins/kaleidosynth.$(openssl rand -base64 3)

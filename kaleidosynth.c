@@ -22,7 +22,7 @@ static const int SECONDS = 30;
 #define INPUT_DIM 3
 
 /// AUDIO GLOBALS ///  
-#define AUDIO_BAND WIDTH
+#define AUDIO_BAND WIDTH * COLOURS
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
@@ -40,7 +40,8 @@ static const int nn_batch_size = WIDTH * HEIGHT;
 static const int hidden_neurons = 10, output_neurons = COLOURS;
 static const int epochs = 10;
 static const int num_layers = 3; // THIS MUST MATCH BELOW
-static const float initialization_sigma = 10.00 / num_layers;
+static const int last_layer = num_layers -1;
+static const float initialization_sigma = 10 / num_layers;
 struct neural_layer cppn[] = {
   {
     .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -110,6 +111,7 @@ static int audio_buffer_sync_callback(
     void *context ) {
 
   LRAudioBuf *audio_buf = (LRAudioBuf*)context;
+  float (*nn_l)[HEIGHT] = (void *) cppn[last_layer].activations.e;
   float *out = (float*)outputBuffer;
   unsigned long i;
 
@@ -122,18 +124,19 @@ static int audio_buffer_sync_callback(
       audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
 
       for(int j=0; j < AUDIO_BAND; ++j) {
-        audio_buf->freq_data[j] = cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + j] * 10;
+        audio_buf->freq_data[j] = 
+          nn_l[audio_buf->note_pos][j];
       }
 /*      audio_buf->maxpos = 0;
       audio_buf->freq_data[audio_buf->maxpos] = 0;
       for (int j=0; j < AUDIO_BAND; ++j) { // scan for the max entry and play that note
-        if (cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + j] > 
-            cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos]) {
+        if (cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + j] > 
+            cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos]) {
           audio_buf->maxpos = j;
         }
       }
       audio_buf->freq_data[audio_buf->maxpos] = 1;
-        //cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos];
+        //cppn[last_layer].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos];
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data, 
         audio_buf->buffer_data);
@@ -178,7 +181,7 @@ static int init_portaudio() {
       NULL, // no input
       &outputParameters,
       44100, // sample rate
-      256, // sample frames per buffer
+      AUDIO_BAND, // sample frames per buffer
       paNoFlag,
       audio_buffer_sync_callback,
       &audio_buf )); // this is context in the callback
@@ -310,6 +313,7 @@ void timer(int value) {
 }
 
 int main(int argc, char **argv) {
+  srand(time(NULL));
   printf("Hello deepnet");
   retfail(init_neural_network());
 
