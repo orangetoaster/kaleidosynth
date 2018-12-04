@@ -18,7 +18,7 @@ static volatile int SHIFT_COLOURS = 0;
 #define FPS 12
 #define WIDTH 320
 #define HEIGHT 240
-#define COLOURS 3
+#define COLOURS 1
 #define INPUT_DIM 3
 
 /// AUDIO GLOBALS ///  
@@ -80,25 +80,43 @@ struct neural_layer cppn[] = {
   },
 };
 
+static int seed_network() {
+  for (int i = 1; i < num_layers; ++i) {
+      randomize(cppn[i].weights.e, 
+        cppn[i].weights.x * cppn[i].weights.y, 
+        initialization_sigma);
+      randomize(cppn[i].biases.e, 
+        cppn[i].biases.x * cppn[i].biases.y, 
+        initialization_sigma);
+    }
+}
+
 static int init_neural_network() {
   for (int i = 0; i < num_layers; ++i) {
     if(i == 0) {
-      cppn[i].activations.e = malloc(nn_batch_size * nn_input_size * sizeof(float));
-      cppn[i].zvals.e = malloc(nn_batch_size * nn_input_size * sizeof(float));
+      cppn[i].activations.e = malloc(nn_batch_size * nn_input_size * 
+        sizeof(float));
+      cppn[i].zvals.e = malloc(nn_batch_size * nn_input_size * 
+        sizeof(float));
     } else {
-      cppn[i].weights.e = malloc(cppn[i].weights.x * cppn[i].weights.y * sizeof(float));
-      cppn[i].w_delt.e = calloc(cppn[i].w_delt.x * cppn[i].w_delt.y, sizeof(float));
+      cppn[i].weights.e = malloc(cppn[i].weights.x * cppn[i].weights.y * 
+        sizeof(float));
+      cppn[i].w_delt.e = calloc(cppn[i].w_delt.x * cppn[i].w_delt.y, 
+        sizeof(float));
 
-      cppn[i].biases.e = malloc(cppn[i].biases.x * cppn[i].biases.y * sizeof(float));
-      cppn[i].b_delt.e = calloc(cppn[i].b_delt.x * cppn[i].b_delt.y, sizeof(float));
-      cppn[i].activations.e = calloc(cppn[i].activations.x * cppn[i].activations.y, sizeof(float));
-      cppn[i].zvals.e = calloc(cppn[i].zvals.x * cppn[i].zvals.y, sizeof(float));
-      
-      randomize(cppn[i].weights.e, cppn[i].weights.x * cppn[i].weights.y, initialization_sigma);
-      randomize(cppn[i].biases.e, cppn[i].biases.x * cppn[i].biases.y, initialization_sigma);
+      cppn[i].biases.e = malloc(cppn[i].biases.x * cppn[i].biases.y * 
+        sizeof(float));
+      cppn[i].b_delt.e = calloc(cppn[i].b_delt.x * cppn[i].b_delt.y, 
+        sizeof(float));
+      cppn[i].activations.e = calloc(
+        cppn[i].activations.x * cppn[i].activations.y, 
+        sizeof(float));
+      cppn[i].zvals.e = calloc(cppn[i].zvals.x * cppn[i].zvals.y, 
+        sizeof(float));
+
     }
   }
-
+  seed_network();
   return SUCCESS;
 }
 
@@ -119,9 +137,11 @@ static int audio_buffer_sync_callback(
   for( i=0; i<framesPerBuffer; i++ ) {
     *out++ = audio_buf->buffer_data[audio_buf->left_phase];  // left channel
     audio_buf->left_phase += 1;
-    // refill the audio buffer with the ifft of the visualization scanning down the screen
+    // refill the audio buffer with the ifft of the visualization scanning
+    // down the screen
     if( audio_buf->left_phase >= AUDIO_BAND ) {
-      float (*nn_l)[WIDTH][COLOURS] = (void *) cppn[last_layer].activations.e;
+      float (*nn_l)[WIDTH][COLOURS] = (void *) 
+        cppn[last_layer].activations.e;
       audio_buf->left_phase -= AUDIO_BAND;
       audio_buf->note_pos += 1;
       if (audio_buf->note_pos > HEIGHT) { // SCREENWRAP TIME //
@@ -158,7 +178,7 @@ static int audio_buffer_sync_callback(
         audio_buf->buffer_data);
 
       // Melody Me! //
-      // scan for the max entry and play that note
+/*      // scan for the max entry and play that note
       for (int j=0; j < AUDIO_BAND; ++j) { 
         if (audio_buf->freq_data[j] > audio_buf->freq_data[audio_buf->maxpos] &&
             abs(audio_buf->freq_data[j]) > 0.09 // Only if it's loud enough to change
@@ -174,7 +194,7 @@ static int audio_buffer_sync_callback(
         audio_buf->copy_buf);
       for (int j=0; j < AUDIO_BAND; ++j) {
         audio_buf->buffer_data[j] += audio_buf->copy_buf[j];
-      }
+      }*/
     }
   }
   return paContinue;
@@ -192,6 +212,7 @@ int near(float a, float b, float epsilon) {
 static int init_portaudio() {
   PaStreamParameters outputParameters = { 0 };
   memset(&outputParameters, 0, sizeof(outputParameters));
+  int chosen_device = 0;
   
   // init the buzz with a real ifft
   memset(&audio_buf, 0, sizeof(audio_buf));
@@ -199,12 +220,27 @@ static int init_portaudio() {
 
   retfail(Pa_Initialize());
 
-  outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
-  retfail(outputParameters.device == paNoDevice) // no default output device
+  /* default output device */
+  outputParameters.device = Pa_GetDefaultOutputDevice(); 
+  retfail(outputParameters.device == paNoDevice) 
+  int num_devs = Pa_GetDeviceCount();
+  PaDeviceInfo *di = NULL;
+  for (int i=0; i < num_devs ; ++ i) {
+    di = Pa_GetDeviceInfo(i);
+    printf("Available Adev: %s\n", di->name);
+    if(strcmp(di->name, "pulse") == 0) {
+      printf("Choosing this device\n");
+      chosen_device = i;
+    }
+  }
   
-  outputParameters.channelCount = 1; // If this is stereo, then the autputBuffer is (L, R) tuples
-  outputParameters.sampleFormat = paFloat32; /* 32 bit floating point output */
-  outputParameters.suggestedLatency = Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
+  // If this is stereo, then the autputBuffer is (L, R) tuples
+  outputParameters.channelCount = 1; 
+  outputParameters.device = chosen_device;
+  // 32 bit floating point output
+  outputParameters.sampleFormat = paFloat32;
+  outputParameters.suggestedLatency = 
+    Pa_GetDeviceInfo( outputParameters.device )->defaultLowOutputLatency;
   outputParameters.hostApiSpecificStreamInfo = NULL;
 
   retfail(Pa_OpenStream(
@@ -247,10 +283,19 @@ void sighandler(int signo) {
 #include <GL/glu.h>
 #endif
 
+int keyboard_callback(unsigned char key, int x, int y) {
+  if(key == 'R') { // Reseed
+    seed_network();
+  } else if (key == 27) { // escape
+    shutdown();
+    exit(0);
+  }
+}
+
 int init_display(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize(WIDTH*4, HEIGHT*4);
+  glutInitWindowSize((int)WIDTH*2.5, (int) HEIGHT*2.5);
 
   glutCreateWindow("Kaleidosynth");
   //glutFullScreen();
@@ -296,8 +341,8 @@ void display() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
   if(COLOURS == 1) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, WIDTH, HEIGHT, 0, GL_LUMINANCE,
-               GL_FLOAT, res.e);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 
+      WIDTH, HEIGHT, 0, GL_LUMINANCE, GL_FLOAT, res.e);
   } else if (COLOURS == 3) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
                GL_FLOAT, res.e - SHIFT_COLOURS * sizeof(float));
