@@ -24,6 +24,7 @@ typedef struct {
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
 static const float volumeMultiplier = 0.001f;
+static const float SAMPLE_RATE = 44100;
 
 static volatile clock_t lasttime = 0;
 
@@ -206,7 +207,7 @@ static int init_portaudio() {
       &stream,
       NULL, // no input
       &outputParameters,
-      44100, // sample rate
+      SAMPLE_RATE, // sample rate
       AUDIO_BAND, // sample frames per buffer
       paNoFlag,
       audio_buffer_sync_callback,
@@ -240,6 +241,30 @@ int keyboard_callback(unsigned char key, int x, int y) {
   }
 }
 
+float bin_for_key(float key) {
+  return key / (SAMPLE_RATE/ (float) AUDIO_BAND);
+}
+
+void inplace_1d_convolve(
+    float* source,
+    int source_width,
+    float* kernel,
+    int kernel_width
+    ) {
+  int offset = - kernel_width / 2;
+  float buff[source_width];
+  memset(buff, 0, source_width);
+
+  for(int i = 0; i < source_width; i++, offset++) {
+    for(int j = 0; j < kernel_width; j++) {
+      const idx = i + j + offset;
+      if(idx > 0 && idx < source_width) {
+        buff[i] += source[i] * kernel[j];
+      }
+    }
+  }
+  memcpy(source, buff, source_width);
+}
 
 void display() {
   float (*input)[WIDTH][INPUT_DIM] = (void *) cppn[0].activations.e;
@@ -253,9 +278,37 @@ void display() {
   }
 
   matrix res = feedforward(cppn, num_layers);
+  float (*output)[WIDTH][COLOURS] = (void *) cppn[last_layer].activations.e;
+
+  const NUM_HARMONICS = 12;
+  float A_bin = bin_for_key(440);
+  int harmonics[AUDIO_BAND] = { 0 };
+  for(float i = A_bin ; i < AUDIO_BAND; i *= 2) {
+    int key = round(i);
+    harmonics[key] = 1;
+  }
+
+  float kernel[5] = { 0.2 };
+  inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
+  for(int i = 0 ; i < AUDIO_BAND; i ++) {
+    printf("%f ", harmonics[i]);
+  }
+    printf("\n");
+    exit(0);
+
+
+  for(int i=0; i < HEIGHT; ++i) {
+    for(int j=0; j < WIDTH; ++j) {
+      output[i][j][0] *= harmonics[j];
+      output[i][j][1] *= harmonics[j];
+      output[i][j][2] *= harmonics[j];
+    }
+  }
+
+
+
 
   render_buffer(res);
-
 
   // only print once per second
   clock_t curtime = clock();

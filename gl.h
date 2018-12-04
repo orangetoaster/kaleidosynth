@@ -13,8 +13,8 @@
 #include "nn.h"
 
 #define FPS 12
-#define WIDTH 840
-#define HEIGHT 120
+#define WIDTH 640
+#define HEIGHT 320
 #define COLOURS 3
 #define INPUT_DIM 3
 
