@@ -12,10 +12,10 @@
 
 #include "nn.h"
 
-#define FPS 12
-#define WIDTH 320
-#define HEIGHT 240
-#define COLOURS 1
+#define FPS 8
+#define WIDTH 640
+#define HEIGHT 480
+#define COLOURS 3
 #define INPUT_DIM 3
 
 /// VIDEO GLOBALS ///
@@ -64,7 +64,7 @@ void render_buffer(matrix res) {
 int init_display(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize((int)WIDTH*2.5, (int) HEIGHT*2.5);
+  glutInitWindowSize((int)WIDTH, (int) HEIGHT);
 
   glutCreateWindow("Kaleidosynth");
   //glutFullScreen();

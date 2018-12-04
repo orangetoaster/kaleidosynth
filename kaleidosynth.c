@@ -8,9 +8,10 @@
 #include "nn.h"
 #include "gl.h"
 #include <time.h>
+#include <limits.h>
 
 /// AUDIO GLOBALS ///  
-static volatile int CLAMP_KEY = 0;
+static volatile int CLAMP_KEY = INT_MAX;
 #define AUDIO_BAND WIDTH
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
@@ -155,13 +156,14 @@ static int audio_buffer_sync_callback(
         }
       }
 
-      float fft_buff[AUDIO_BAND];
+      float fft_output[AUDIO_BAND];
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data,
-        fft_buff);
+        fft_output);
 
         for (int i=0; i < AUDIO_BAND; ++i) {
-          audio_buf->buffer_data[i] = fft_buff[i] * 0.5 + audio_buf->buffer_data[i] * 0.5;
+          audio_buf->buffer_data[i] = fft_output[i] * 0.5 
+            + audio_buf->buffer_data[i] * 0.5;
         }
     }
   }
@@ -267,12 +269,12 @@ void display() {
   for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
-    { 440}; //, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
-
+    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
   for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
-    float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
-    for(; (int) round(bin) < BANDPASS; bin *= 2.0) {
-      harmonics[(int) round(bin)] = 1.0;
+    int bin = (int) round((freqs[note]/2.0) 
+                / (SAMPLE_RATE/ (float) AUDIO_BAND));
+    for(; bin < AUDIO_BAND; bin *= 2.0) {
+      harmonics[bin] = 1.0;
     }
   }
 
@@ -280,11 +282,11 @@ void display() {
     { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
   int glen= sizeof(gaussian_kernel) / sizeof(float);
   for( int i =0; i < glen; ++i) {
-    gaussian_kernel[i] = sqrt(gaussian_kernel[i]);
+    gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
   }
   inplace_1d_convolve(harmonics, (int) AUDIO_BAND, gaussian_kernel, glen);
 
-  if(CLAMP_KEY != 0) {
+  if(CLAMP_KEY != INT_MAX) {
     for(int i=0; i < HEIGHT; ++i) {
       for(int j=0; j < WIDTH; ++j) {
         output[i][j][0] *= harmonics[j];
@@ -330,9 +332,21 @@ int keyboard_callback(unsigned char key, int x, int y) {
     shutdown();
     exit(0);
   } else if (key == 'a') {
-    CLAMP_KEY = 1;
-  } else if (key == ' ') {
     CLAMP_KEY = 0;
+  } else if (key == 'b') {
+    CLAMP_KEY = 1;
+  } else if (key == 'c') {
+    CLAMP_KEY = 2;
+  } else if (key == 'd') {
+    CLAMP_KEY = 3;
+  } else if (key == 'e') {
+    CLAMP_KEY = 4;
+  } else if (key == 'f') {
+    CLAMP_KEY = 5;
+  } else if (key == 'g') {
+    CLAMP_KEY = 6;
+  } else if (key == ' ') {
+    CLAMP_KEY = INT_MAX;
   }
   return SUCCESS;
 }
