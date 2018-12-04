@@ -187,9 +187,10 @@ static int shutdown() {
 }
 
 void sighandler(int signo) {
-  if (signo == SIGKILL) {
+  if (signo == SIGKILL || signo == SIGINT) {
     printf("Shutting down...");
     shutdown();
+    exit(0);
   }
 }
 
@@ -307,6 +308,7 @@ int main(int argc, char **argv) {
   printf("Hello sound\n");
   retfail(init_portaudio());
   retfail(signal(SIGINT, sighandler) == SIG_ERR);
+  retfail(signal(SIGKILL, sighandler) == SIG_ERR);
   retfail(Pa_StartStream(stream));
   
   printf("Hello video\n");
