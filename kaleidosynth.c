@@ -11,8 +11,12 @@
 #include <limits.h>
 
 /// AUDIO GLOBALS ///  
+static const float gaussian_kernel[] = 
+    { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
+static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
-#define AUDIO_BAND (WIDTH *8)
+#define AUDIO_FACTOR 3
+#define AUDIO_BAND (WIDTH *AUDIO_FACTOR)
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
@@ -114,6 +118,27 @@ static int init_neural_network() {
   return SUCCESS;
 }
 
+void inplace_1d_convolve(
+    float* source,
+    int source_width,
+    float* kernel,
+    int kernel_width
+    ) {
+  float buff[source_width];
+  for(int i = 0; i < source_width; ++i){
+      buff[i] = 0.;
+  }
+
+  for(int i = 0; i < source_width; i++) {
+    int k_min = fmax(i - kernel_width / 2, 0);
+    int k_max = fmin(i + kernel_width / 2 + 1, source_width);
+    for(int j = k_min; j < k_max; j++) {
+      buff[i] += source[j] * kernel[j - k_min];
+    }
+  }
+  memmove(source, buff, source_width * sizeof(float));
+}
+
 /// AUDIO CODE ///
 // This can be called at interrupt level, so nothing fancy, no malloc/free
 static int audio_buffer_sync_callback(
@@ -149,12 +174,19 @@ static int audio_buffer_sync_callback(
       }
       int p = audio_buf->note_pos;
       
-      for (int j=0; j < AUDIO_BAND/8; ++j) {
-        audio_buf->freq_data[j*4] = nn_l[p][j][0];
+      for (int j=0; j < AUDIO_BAND; ++j) {
+        audio_buf->freq_data[j] = nn_l[p][j/AUDIO_FACTOR][0]/AUDIO_FACTOR;
         if(COLOURS == 3) {
-          audio_buf->freq_data[j*4] += nn_l[p][j][1] + nn_l[p][j][2];
+          audio_buf->freq_data[j] += nn_l[p][j/AUDIO_FACTOR][1] 
+            + nn_l[p][j/AUDIO_FACTOR][2];
         }
       }
+      float smooth[AUDIO_FACTOR];
+      for(int a=0; a < AUDIO_FACTOR; ++a) {
+        smooth[a] = 1.0 / AUDIO_FACTOR;
+      }
+      inplace_1d_convolve(audio_buf->freq_data, (int) AUDIO_BAND, 
+        smooth, AUDIO_FACTOR);
 
       float fft_output[AUDIO_BAND];
       kiss_fftri(audio_buf->cfg, 
@@ -227,27 +259,6 @@ static int init_portaudio() {
   return SUCCESS;
 }
 
-void inplace_1d_convolve(
-    float* source,
-    int source_width,
-    float* kernel,
-    int kernel_width
-    ) {
-  float buff[source_width];
-  for(int i = 0; i < source_width; ++i){
-      buff[i] = 0.;
-  }
-
-  for(int i = 0; i < source_width; i++) {
-    int k_min = fmax(i - kernel_width / 2, 0);
-    int k_max = fmin(i + kernel_width / 2 + 1, source_width);
-    for(int j = k_min; j < k_max; j++) {
-      buff[i] += source[j] * kernel[j - k_min];
-    }
-  }
-  memmove(source, buff, source_width * sizeof(float));
-}
-
 void display() {
   float (*input)[WIDTH][INPUT_DIM] = (void *) cppn[0].activations.e;
 
@@ -278,21 +289,19 @@ void display() {
     }
   }
 
-  float gaussian_kernel[] = 
-    { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
-  int glen= sizeof(gaussian_kernel) / sizeof(float);
+  float sq_gaussian_kernel[glen];
   for( int i =0; i < glen; ++i) {
-    gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
+    sq_gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
   }
-  inplace_1d_convolve(harmonics, (int) AUDIO_BAND, gaussian_kernel, glen);
+  inplace_1d_convolve(harmonics, (int) AUDIO_BAND, sq_gaussian_kernel, glen);
 
   if(CLAMP_KEY != INT_MAX) {
     for(int i=0; i < HEIGHT; ++i) {
       for(int j=0; j < WIDTH; ++j) {
-        output[i][j][0] *= harmonics[j];
+        output[i][j][0] *= harmonics[j*AUDIO_FACTOR];
         if(COLOURS == 3) {
-          output[i][j][1] *= harmonics[j];
-          output[i][j][2] *= harmonics[j];
+          output[i][j][1] *= harmonics[j*AUDIO_FACTOR];
+          output[i][j][2] *= harmonics[j*AUDIO_FACTOR];
         }
       }
     }
