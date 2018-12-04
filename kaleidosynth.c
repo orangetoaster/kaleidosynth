@@ -254,7 +254,7 @@ void display() {
 
   matrix res = feedforward(cppn, num_layers);
 
-  renderBuffer(res);
+  render_buffer(res);
 
 
   // only print once per second

@@ -28,12 +28,15 @@ static volatile int SHIFT_COLOURS = 0;
 
 static int framebuffer_id = 0;
 
-void renderBuffer(matrix res) {
+void create_framebuffer() {
   glGenTextures(1, &framebuffer_id);
   glBindTexture(GL_TEXTURE_2D, framebuffer_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+}
+
+void render_buffer(matrix res) {
   if(COLOURS == 1) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 
       WIDTH, HEIGHT, 0, GL_LUMINANCE, GL_FLOAT, res.e);
@@ -85,6 +88,8 @@ int init_display(int argc, char **argv) {
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
   glMatrixMode(GL_MODELVIEW);
+
+  create_framebuffer();
 
   return SUCCESS;
 }
