@@ -127,10 +127,8 @@ static int audio_buffer_sync_callback(
   float *out = (float*)outputBuffer;
   unsigned long i;
 
-  for( i=0; i<framesPerBuffer/2; i++ ) {
-    *out++ = audio_buf->buffer_data[i] 
-      * volumeMultiplier;  // left channel
-    *out++ = (audio_buf->buffer_data[i] +  audio_buf->buffer_data[(i+1)%AUDIO_BAND])/2
+  for( i=0; i<framesPerBuffer; i++ ) {
+    *out++ = audio_buf->buffer_data[audio_buf->left_phase] 
       * volumeMultiplier;  // left channel
 
     audio_buf->left_phase += 1;
