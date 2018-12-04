@@ -238,10 +238,12 @@ void inplace_1d_convolve(
     int k_max = fmin(i + kernel_width / 2 + 1, source_width);
     for(int j = k_min; j < k_max; j++) {
       buff[i] += source[j] * kernel[j - k_min];
-      //printf("%d %d %d :: %f %f\n", i, j, j - k_min, buff[i], source[i]);
+      if( source[j] > 0.01) {
+        //printf("%d %d %d :: %f %f %f\n", i, j, j - k_min, buff[i], source[j], kernel[j - k_min]);
+      }
     }
   }
-  memcpy(source, buff, source_width);
+  memmove(source, buff, source_width);
 }
 
 void display() {
@@ -259,7 +261,8 @@ void display() {
   float (*output)[WIDTH][COLOURS] = 
     (void *) cppn[last_layer].activations.e;
 
-  int harmonics[AUDIO_BAND] = { 0 };
+  float harmonics[AUDIO_BAND];
+  for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
     { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
@@ -271,8 +274,11 @@ void display() {
     }
   }
 
-  float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2};
- inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
+  float kernel[5] = { 0.06136,	0.24477,	0.38774,	0.24477,	0.06136};
+  inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
+
+  //for(int i = 0; i < AUDIO_BAND; i++) printf("%f\n", harmonics[i]);
+  //exit(0);
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
