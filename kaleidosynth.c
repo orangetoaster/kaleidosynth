@@ -13,20 +13,21 @@ static volatile int frame_count = 0;
 static volatile int lastframe = 0;
 static volatile clock_t lasttime = 0;
 static const int SECONDS = 30;
+static volatile int SHIFT_COLOURS = 0;
 
 #define FPS 12
 #define WIDTH 320
 #define HEIGHT 240
-// RGB = 4
-#define COLOURS 1
+#define COLOURS 3
 #define INPUT_DIM 3
 
 /// AUDIO GLOBALS ///  
-#define AUDIO_BAND WIDTH * COLOURS
+#define AUDIO_BAND WIDTH
 typedef struct {
   kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
+  kiss_fft_scalar melody[AUDIO_BAND]; // pre-buffer size
   int left_phase;
   int note_pos;
   int maxpos;
@@ -38,9 +39,9 @@ PaStream *stream = NULL;
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = INPUT_DIM; // x, y, frame
 static const int nn_batch_size = WIDTH * HEIGHT;
-static const int hidden_neurons = 10, output_neurons = COLOURS;
+static const int hidden_neurons = 20, output_neurons = COLOURS;
 static const int epochs = 10;
-static const int num_layers = 3; // THIS MUST MATCH BELOW
+static const int num_layers = 4; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
 static const float initialization_sigma = 8 / num_layers;
 struct neural_layer cppn[] = {
@@ -58,7 +59,7 @@ struct neural_layer cppn[] = {
     .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .activate = &gaussian_activate,
     .backprop = &gaussian_prime,
-/*  }, {
+  }, {
     .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
     .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
     .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
@@ -66,7 +67,7 @@ struct neural_layer cppn[] = {
     .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
     .activate = &gaussian_activate,
-    .backprop = &gaussian_prime,*/
+    .backprop = &gaussian_prime,
   }, {
     .weights = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
     .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
@@ -112,7 +113,6 @@ static int audio_buffer_sync_callback(
     void *context ) {
 
   LRAudioBuf *audio_buf = (LRAudioBuf*)context;
-  float (*nn_l)[HEIGHT] = (void *) cppn[last_layer].activations.e;
   float *out = (float*)outputBuffer;
   unsigned long i;
 
@@ -121,33 +121,60 @@ static int audio_buffer_sync_callback(
     audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning down the screen
     if( audio_buf->left_phase >= AUDIO_BAND ) {
+      float (*nn_l)[WIDTH][COLOURS] = (void *) cppn[last_layer].activations.e;
       audio_buf->left_phase -= AUDIO_BAND;
-      audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
+      audio_buf->note_pos += 1;
+      if (audio_buf->note_pos > HEIGHT) { // SCREENWRAP TIME //
+        audio_buf->note_pos = 0;
+        if(SHIFT_COLOURS == 0) {
+          SHIFT_COLOURS = 1;
+        } else {
+          SHIFT_COLOURS = 0;
+        }
+        
+/*        randomize(audio_buf->freq_data, AUDIO_BAND, 1.0); // I want to make a drumbeat here
+        for (int j=0; j < AUDIO_BAND; ++j) {
+          audio_buf->freq_data[j] *= (AUDIO_BAND - j);
+        }
+        kiss_fftri(audio_buf->cfg, 
+          (kiss_fft_cpx *) &audio_buf->freq_data,
+          audio_buf->copy_buf);
+        for (int j=0; j < AUDIO_BAND; ++j) {
+          audio_buf->buffer_data[j] += audio_buf->copy_buf[j];
+        }
+        memset(audio_buf->freq_data, 0, AUDIO_BAND);
+        memset(audio_buf->copy_buf, 0, AUDIO_BAND);*/
+      }
       int p = audio_buf->note_pos;
-
-      kiss_fftri(audio_buf->cfg, 
-        (kiss_fft_cpx *) &nn_l[p], 
-        audio_buf->buffer_data);
-
-      // Melody //
-      // scan for the max entry and play that note
-      for (int j=0; j < AUDIO_BAND; ++j) { 
-        if (nn_l[p][j] > nn_l[p][audio_buf->maxpos] &&
-            abs(nn_l[p][j]) > 0.1 // Only if it's loud enough to change
-           ) {
-          audio_buf->freq_data[audio_buf->maxpos] = 0;
-          audio_buf->maxpos = j;
-          audio_buf->freq_data[audio_buf->maxpos] =
-            nn_l[p][audio_buf->maxpos];
+      
+      for (int j=0; j < AUDIO_BAND; ++j) {
+        audio_buf->freq_data[j] = nn_l[p][j][0];
+        if(COLOURS == 3) {
+          audio_buf->freq_data[j] += nn_l[p][j][1] + nn_l[p][j][2];
         }
       }
       kiss_fftri(audio_buf->cfg, 
-        (kiss_fft_cpx *) &audio_buf->freq_data, 
+        (kiss_fft_cpx *) &audio_buf->freq_data,
+        audio_buf->buffer_data);
+
+      // Melody Me! //
+      // scan for the max entry and play that note
+      for (int j=0; j < AUDIO_BAND; ++j) { 
+        if (audio_buf->freq_data[j] > audio_buf->freq_data[audio_buf->maxpos] &&
+            abs(audio_buf->freq_data[j]) > 0.09 // Only if it's loud enough to change
+           ) {
+          audio_buf->melody[audio_buf->maxpos] = 0;
+          audio_buf->maxpos = j;
+          audio_buf->melody[audio_buf->maxpos] =
+            audio_buf->freq_data[j];
+        }
+      }
+      kiss_fftri(audio_buf->cfg, 
+        (kiss_fft_cpx *) &audio_buf->melody, 
         audio_buf->copy_buf);
       for (int j=0; j < AUDIO_BAND; ++j) {
         audio_buf->buffer_data[j] += audio_buf->copy_buf[j];
       }
-
     }
   }
   return paContinue;
@@ -223,10 +250,10 @@ void sighandler(int signo) {
 int init_display(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize(WIDTH, HEIGHT);
+  glutInitWindowSize(WIDTH*4, HEIGHT*4);
 
   glutCreateWindow("Kaleidosynth");
-  glutFullScreen();
+  //glutFullScreen();
  
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
@@ -273,7 +300,7 @@ void display() {
                GL_FLOAT, res.e);
   } else if (COLOURS == 3) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
-               GL_FLOAT, res.e);
+               GL_FLOAT, res.e - SHIFT_COLOURS * sizeof(float));
   }
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
   
