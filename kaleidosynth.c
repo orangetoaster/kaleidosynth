@@ -14,11 +14,11 @@ static volatile int lastframe = 0;
 static volatile clock_t lasttime = 0;
 static const int SECONDS = 30;
 
-#define FPS 60
+#define FPS 12
 #define WIDTH 320
 #define HEIGHT 240
 // RGB = 4
-#define COLOURS 3
+#define COLOURS 1
 #define INPUT_DIM 3
 
 /// AUDIO GLOBALS ///  
@@ -120,7 +120,11 @@ static int audio_buffer_sync_callback(
     if( audio_buf->left_phase >= AUDIO_BAND ) {
       audio_buf->left_phase -= AUDIO_BAND;
       audio_buf->note_pos = (audio_buf->note_pos + 1) % (HEIGHT); // wrap the screen
-      audio_buf->maxpos = 0;
+
+      for(int j=0; j < AUDIO_BAND; ++j) {
+        audio_buf->freq_data[j] = cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + j] * 10;
+      }
+/*      audio_buf->maxpos = 0;
       audio_buf->freq_data[audio_buf->maxpos] = 0;
       for (int j=0; j < AUDIO_BAND; ++j) { // scan for the max entry and play that note
         if (cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + j] > 
@@ -130,6 +134,10 @@ static int audio_buffer_sync_callback(
       }
       audio_buf->freq_data[audio_buf->maxpos] = 1;
         //cppn[num_layers -1].activations.e[audio_buf->note_pos * AUDIO_BAND + audio_buf->maxpos];
+      kiss_fftri(audio_buf->cfg, 
+        (kiss_fft_cpx *) &audio_buf->freq_data, 
+        audio_buf->buffer_data);
+*/
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data, 
         audio_buf->buffer_data);
@@ -211,7 +219,7 @@ int init_display(int argc, char **argv) {
   glutInitWindowSize(WIDTH, HEIGHT);
 
   glutCreateWindow("Kaleidosynth");
-  //glutFullScreen();
+  glutFullScreen();
  
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glEnable(GL_TEXTURE_2D);
@@ -234,7 +242,7 @@ int init_display(int argc, char **argv) {
 }
 
 void display() {
-  float (*fb)[WIDTH][COLOURS] = (void *) cppn[0].activations.e;
+  float (*fb)[WIDTH][INPUT_DIM] = (void *) cppn[0].activations.e;
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
