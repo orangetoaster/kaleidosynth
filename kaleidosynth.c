@@ -189,7 +189,7 @@ static int init_portaudio() {
   for (int i=0; i < num_devs ; ++ i) {
     di = Pa_GetDeviceInfo(i);
     printf("Available Adev: %s\n", di->name);
-    if(strcmp(di->name, "pulse") == 0) {
+    if(strcmp(di->name, "default") == 0) {
       printf("Choosing this device\n");
       chosen_device = i;
     }
@@ -216,33 +216,6 @@ static int init_portaudio() {
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
 
   return SUCCESS;
-}
-
-static int shutdown() {
-    retfail(Pa_StopStream( stream ));
-    retfail(Pa_CloseStream( stream ));
-    return SUCCESS;
-}
-
-void sighandler(int signo) {
-  if (signo == SIGKILL || signo == SIGINT) {
-    printf("Shutting down...");
-    shutdown();
-    exit(0);
-  }
-}
-
-int keyboard_callback(unsigned char key, int x, int y) {
-  if(key == 'R') { // Reseed
-    seed_network();
-  } else if (key == 27) { // escape
-    shutdown();
-    exit(0);
-  }
-}
-
-float bin_for_key(float key) {
-  return key / (SAMPLE_RATE/ (float) AUDIO_BAND);
 }
 
 void inplace_1d_convolve(
@@ -279,27 +252,34 @@ void display() {
   }
 
   matrix res = feedforward(cppn, num_layers);
-  float (*output)[WIDTH][COLOURS] = (void *) cppn[last_layer].activations.e;
+  float (*output)[WIDTH][COLOURS] = 
+    (void *) cppn[last_layer].activations.e;
 
-  const NUM_HARMONICS = 12;
-  float A_bin = bin_for_key(440);
-  float harmonics[AUDIO_BAND] = { 0 };
-  for(float i = A_bin ; i < AUDIO_BAND/3; i *= 2) {
-    int key = round(i);
-    harmonics[key] = 1.;
+  int harmonics[AUDIO_BAND] = { 0 };
+  float freqs[] = // key of A
+   // A    B       C#      D       E       F#      G#
+    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+
+  for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
+    float bin = (freqs[note]/2) / (SAMPLE_RATE/ (float) AUDIO_BAND);
+    for(; (int) round(bin) < AUDIO_BAND; bin *= 2.0) {
+      fprintf(stderr, "BIN: %.2f\r", bin);
+      harmonics[(int) round(bin)] = 1.0;
+    }
   }
 
   float kernel[5] = { 0.2, 0.2, 0.2, 0.2, 0.2};
-  inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
+ inplace_1d_convolve(harmonics, AUDIO_BAND, kernel, 5);
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
       output[i][j][0] *= harmonics[j];
-      output[i][j][1] *= harmonics[j];
-      output[i][j][2] *= harmonics[j];
+      if(COLOURS == 3) {
+        output[i][j][1] *= harmonics[j];
+        output[i][j][2] *= harmonics[j];
+      }
     }
   }
-
   render_buffer(res);
 
   // only print once per second
@@ -311,6 +291,31 @@ void display() {
     lasttime = curtime;
   }
   
+}
+
+int shutdown() {
+    retfail(Pa_StopStream( stream ));
+    retfail(Pa_CloseStream( stream ));
+    return SUCCESS;
+}
+
+void sighandler(int signo) {
+  if (signo == SIGKILL || signo == SIGINT) {
+    printf("Shutting down...");
+    shutdown();
+    exit(0);
+  }
+}
+
+int keyboard_callback(unsigned char key, int x, int y) {
+  printf("Keypress: %d\n", key);
+  if(key == 'R') { // Reseed
+    seed_network();
+  } else if (key == 27) { // escape
+    shutdown();
+    exit(0);
+  }
+  return SUCCESS;
 }
 
 void timer(int value) {
@@ -325,7 +330,6 @@ void timer(int value) {
   }
 }
 
-
 int main(int argc, char **argv) {
   srand(time(NULL));
   printf("Hello deepnet");
@@ -339,10 +343,10 @@ int main(int argc, char **argv) {
   
   printf("Hello video\n");
   retfail(init_display(argc, argv));
-
+  
+  glutDisplayFunc(&display);
   glutTimerFunc(0, &timer, 0);
   glutKeyboardFunc(&keyboard_callback);
-  glutDisplayFunc(&display);
 
   glutMainLoop(); // never returns
   return SUCCESS;

@@ -13,9 +13,9 @@
 #include "nn.h"
 
 #define FPS 12
-#define WIDTH 640
-#define HEIGHT 320
-#define COLOURS 3
+#define WIDTH 320
+#define HEIGHT 240
+#define COLOURS 1
 #define INPUT_DIM 3
 
 /// VIDEO GLOBALS ///
@@ -23,9 +23,6 @@ static volatile int frame_count = 0;
 static volatile int lastframe = 0;
 static const int SECONDS = 30;
 static volatile int SHIFT_COLOURS = 0;
-
-
-
 static int framebuffer_id = 0;
 
 void create_framebuffer() {
