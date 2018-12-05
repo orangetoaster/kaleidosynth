@@ -335,6 +335,7 @@ void display() {
   clock_t curtime = clock();
   if ( curtime - lasttime >= CLOCKS_PER_SEC ){ 
     printf("FPS: %d\n", (frame_count - lastframe));
+    fflush(stdout);	
     lastframe = frame_count;
     lasttime = curtime;
   }
