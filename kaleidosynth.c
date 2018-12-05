@@ -9,7 +9,6 @@
 #include "gl.h"
 #include <time.h>
 #include <limits.h>
-#include <fftw3.h>
 
 float framebuffer_unsnake[HEIGHT][WIDTH][COLOURS];
 /// AUDIO GLOBALS ///  
@@ -123,6 +122,20 @@ static int init_neural_network() {
     }
   }
   seed_network();
+  // initialize the cppn coordinate system
+  float (*input)[WIDTH][INPUT_DIM] = (void *) cppn[0].activations.e;
+  for(int i=0; i < HEIGHT; ++i) {
+    for(int j=0; j < WIDTH; ++j) {
+      if(i %2 == 0) {
+        input[i][j][0] = (float) j / (WIDTH/2) -1.0;
+        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      } else {
+        input[i][j][0] = (float) (WIDTH - (j+1)) / (WIDTH/2) -1.0;
+        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      }
+    }
+  }
+
   return SUCCESS;
 }
 
@@ -163,14 +176,14 @@ static int audio_buffer_sync_callback(
   for(unsigned long i=0; i<framesPerBuffer; i = (i+1) % (WIDTH*HEIGHT)) {
     float (*nn_l)[COLOURS] = (void *) 
       cppn[last_layer].activations.e;
-    //*out++ = audio_buf->buffer_data[audio_buf->left_phase]
-    //*out++ = nn_l[audio_buf->left_phase++][audio_buf->colourphase] //+ nn_l[i][1] + nn_l[i][2])
     // left
-    *out++ = audio_double_buf[audio_buf->left_phase][audio_buf->colourphase] //+ nn_l[i][1] + nn_l[i][2])
-      * volumeMultiplier;
+    *out++ = audio_double_buf[audio_buf->left_phase]
+                             [audio_buf->colourphase]
+            * volumeMultiplier;
     // right
-    *out++ = audio_double_buf[audio_buf->left_phase][(audio_buf->colourphase + 1) % COLOURS] //+ nn_l[i][1] + nn_l[i][2])
-      * volumeMultiplier;
+    *out++ = audio_double_buf[audio_buf->left_phase]
+                             [(audio_buf->colourphase + 1) % COLOURS]
+            * volumeMultiplier;
     audio_buf->left_phase ++;
     if(audio_buf->left_phase >= WIDTH*HEIGHT) {
       audio_buf->left_phase -= WIDTH*HEIGHT;
@@ -259,7 +272,6 @@ static int init_portaudio() {
   memset(&outputParameters, 0, sizeof(outputParameters));
   int chosen_device = 0;
   
-  // init the buzz with a real ifft
   memset(&audio_buf, 0, sizeof(audio_buf));
 //  audio_buf.cfg = kiss_fftr_alloc(AUDIO_BAND, 1, NULL,NULL);
 
@@ -331,13 +343,7 @@ void display() {
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      if(i %2 == 0) {
-        input[i][j][0] = (float) j / (WIDTH/2) -1.0;
-        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
-      } else {
-        input[i][j][0] = (float) (WIDTH - (j+1)) / (WIDTH/2) -1.0;
-        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
-      }
+      // coordinates are static, just the time
       input[i][j][2] = (float) frame_count / (SECONDS * FPS / 2) -1.0;
     }
   }
@@ -347,23 +353,7 @@ void display() {
   float (*output)[WIDTH][COLOURS] = 
     (void *) cppn[last_layer].activations.e;
  
-//  fftw_real /*in[AUDIO_BAND], out[AUDIO_BAND],*/ power_spectrum[AUDIO_BAND/2+1];
-//  rfftw_plan p;
-//  int k;
-//  p = rfftw_create_plan(AUDIO_BAND, FFTW_REAL_TO_COMPLEX, FFTW_ESTIMATE);
-//  rfftw_one(p, output, frequency_space);
-//  power_spectrum[0] = frequency_space[0]*frequency_space[0];  /* DC component */
-//  /* (k < AUDIO_BAND/2 rounded up) */
-//  for (k = 1; k < (AUDIO_BAND+1)/2; ++k) {
-//    power_spectrum[k] = frequency_space[k]*frequency_space[k] + frequency_space[AUDIO_BAND-k]*frequency_space[AUDIO_BAND-k];
-//  }
-//  if (AUDIO_BAND % 2 == 0) {/* AUDIO_BAND is even */
-//    /* Nyquist freq. */
-//    power_spectrum[AUDIO_BAND/2] = frequency_space[AUDIO_BAND/2]*frequency_space[AUDIO_BAND/2];
-//  }
-//  rfftw_destroy_plan(p);
-//
-  kiss_fftr(full_fftr_cfg, 
+ kiss_fftr(full_fftr_cfg, 
       output,
       (kiss_fft_cpx *) frequency_space);
 
@@ -376,7 +366,8 @@ void display() {
   kiss_fftri(full_fftri_cfg, 
       (kiss_fft_cpx *) frequency_space,
       output);
-  for(int i=0; i < AUDIO_BAND * COLOURS; ++i) { // tada, unnormalized output
+  // We need to normalize the fft output ourselves, same as fftw.
+  for(int i=0; i < AUDIO_BAND * COLOURS; ++i) { 
     cppn[last_layer].activations.e[i] /= (AUDIO_BAND/2);
   }
   memcpy(audio_double_buf, output, AUDIO_BAND*COLOURS);
