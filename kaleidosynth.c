@@ -31,7 +31,11 @@ static const float SAMPLE_RATE = 44100;
 static const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
 
 static volatile clock_t lasttime = 0;
-float harmonics[AUDIO_BAND];
+const float freqs[] = // key of A
+        // A    B       C#      D       E       F#      G#
+    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+#define NUM_KEYS 7
+float harmonics[NUM_KEYS][AUDIO_BAND];
 float frequency_space[AUDIO_BAND];
 float audio_double_buf[WIDTH*HEIGHT][COLOURS];
 kiss_fftr_cfg full_fftri_cfg = {0};
@@ -246,27 +250,25 @@ static int init_portaudio() {
 
     retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
 
-    // setup key structures //
-    for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
-    float freqs[] = // key of A
-        // A    B       C#      D       E       F#      G#
-    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
-    for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
-        int bin = (int) round((freqs[note]/2.0) 
-                / (SAMPLE_RATE/ (float) AUDIO_BAND));
-        float falloff = 1.0;
-        for(; bin < AUDIO_BAND; bin *= 4.0) { // double for octave and phase
-            harmonics[bin] = 1.0 * falloff;
-            falloff /= 3.0;
-        }
-    }
-
     float sq_gaussian_kernel[glen*2];
-    memset(sq_gaussian_kernel, 0.0, glen*2);
+    memset(sq_gaussian_kernel, 0.0, glen*2*sizeof(float));
     for( int i =0; i < glen; ++i) {
         sq_gaussian_kernel[i*2] = sqrt(sqrt(gaussian_kernel[i]));
     }
-    inplace_1d_convolve(harmonics, (int) AUDIO_BAND, sq_gaussian_kernel, glen);
+    // setup key structures //
+    for(int i = 0; i < AUDIO_BAND; i++) for(int j = 0; j < NUM_KEYS; j++) harmonics[j][i] = 0.;
+    for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
+        //int bin = (int) (round((freqs[note]/2.0) / (SAMPLE_RATE/ (float) AUDIO_BAND)));
+        int bin = (int) round(freqs[note] / 4.0 * SAMPLE_RATE/ (float) AUDIO_BAND);
+        printf("bin: %d\n", bin);
+        float falloff = 100.0;
+        for(; bin < AUDIO_BAND; bin *= 2.0) { // double for octave and phase
+            harmonics[note][bin] = 1.0 * falloff;
+            falloff *= 1.5;
+        }
+        inplace_1d_convolve(harmonics[note], (int) AUDIO_BAND, sq_gaussian_kernel, glen);
+    }
+
 
 
     return SUCCESS;
@@ -291,12 +293,13 @@ void display() {
             output,
             (kiss_fft_cpx *) frequency_space);
 
-    for(int i=0; i < AUDIO_BAND; i+=2) {
+    for(int i=0; i < AUDIO_BAND; i ++) {
         if(CLAMP_KEY != INT_MAX) {
-            frequency_space[i] = harmonics[i];
+            frequency_space[i] *= harmonics[CLAMP_KEY][i];
         }
+
         if(i > BANDPASS) {
-            frequency_space[i] = 0.f;
+            //frequency_space[i] = 0.f;
         }
     }
 
