@@ -32,7 +32,7 @@ LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
 static const float volumeMultiplier = 1.0f; //0.01f;
 static const float SAMPLE_RATE = 44100;
-static const float BANDPASS = 2000. / (SAMPLE_RATE / (float) AUDIO_BAND);
+static const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
 
 static volatile clock_t lasttime = 0;
 float harmonics[AUDIO_BAND];
@@ -178,7 +178,7 @@ static int audio_buffer_sync_callback(
     *out++ = audio_double_buf[audio_buf->right_phase] * volumeMultiplier;
 
     audio_buf->left_phase = (audio_buf->left_phase + 1) % AUDIO_BAND;
-    audio_buf->right_phase = (audio_buf->right_phase + 1) % AUDIO_BAND;
+    audio_buf->right_phase = (audio_buf->right_phase + 2) % AUDIO_BAND;
 
     /*
     if(audio_buf->left_phase >= WIDTH*HEIGHT) {
@@ -250,7 +250,6 @@ static int init_portaudio() {
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
   
   // setup key structures //
-  printf("Bandpass: %f\n", BANDPASS);
   for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
@@ -299,8 +298,8 @@ void display() {
       if(CLAMP_KEY != INT_MAX) {
           frequency_space[i] *= harmonics[i];
       }
-      if(i > 10.) {
-          frequency_space[i] = 0.f;
+      if(i > BANDPASS) {
+        frequency_space[i] = 0.f;
       }
     }
   
