@@ -37,7 +37,7 @@ static const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
 static volatile clock_t lasttime = 0;
 float harmonics[AUDIO_BAND];
 float frequency_space[AUDIO_BAND];
-float audio_double_buf[AUDIO_BAND];
+float audio_double_buf[WIDTH*HEIGHT][COLOURS];
 kiss_fftr_cfg full_fftri_cfg = {0};
 kiss_fftr_cfg full_fftr_cfg = {0};
 
@@ -174,11 +174,25 @@ static int audio_buffer_sync_callback(
   float *out = (float*)outputBuffer;
 
   for(unsigned long i=0; i<framesPerBuffer; ++i) {
-    *out++ = audio_double_buf[audio_buf->left_phase] * volumeMultiplier;
-    *out++ = audio_double_buf[audio_buf->right_phase] * volumeMultiplier;
-
-    audio_buf->left_phase = (audio_buf->left_phase + 1) % AUDIO_BAND;
-    audio_buf->right_phase = (audio_buf->right_phase + 2) % AUDIO_BAND;
+    *out++ = audio_double_buf[audio_buf->left_phase]
+                             [audio_buf->colourphase]
+            * volumeMultiplier;
+    // right
+    *out++ = audio_double_buf[audio_buf->left_phase]
+                             [(audio_buf->colourphase + 1) % COLOURS]
+            * volumeMultiplier;
+    audio_buf->left_phase ++;
+    if(audio_buf->left_phase >= WIDTH*HEIGHT) {
+      audio_buf->left_phase -= WIDTH*HEIGHT;
+      audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
+      if(audio_buf->colourphase ==2) {
+        if(SHIFT_COLOURS == 0) {
+          SHIFT_COLOURS = 1;
+        } else {
+          SHIFT_COLOURS = 0;
+        }
+      }
+    }
 
     /*
     if(audio_buf->left_phase >= WIDTH*HEIGHT) {
