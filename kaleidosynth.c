@@ -17,27 +17,27 @@ static const float gaussian_kernel[] =
 static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
 #define AUDIO_FACTOR 4
-#define AUDIO_BAND (WIDTH *HEIGHT * COLOURS)
+#define AUDIO_BAND (WIDTH * HEIGHT * COLOURS)
 typedef struct {
 /*  kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar melody[AUDIO_BAND]; // pre-buffer size*/
   int left_phase;
-  int note_pos;
-  int maxpos;
+  int right_phase;
   int colourphase;
   kiss_fftr_cfg cfg;
 } LRAudioBuf;
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
-static const float volumeMultiplier = 1.0; //0.01f;
+static const float volumeMultiplier = 1.0f; //0.01f;
 static const float SAMPLE_RATE = 44100;
+static const float BANDPASS = 2000. / (SAMPLE_RATE / (float) AUDIO_BAND);
 
 static volatile clock_t lasttime = 0;
 float harmonics[AUDIO_BAND];
 float frequency_space[AUDIO_BAND];
-float audio_double_buf[AUDIO_BAND][COLOURS];
+float audio_double_buf[AUDIO_BAND];
 kiss_fftr_cfg full_fftri_cfg = {0};
 kiss_fftr_cfg full_fftr_cfg = {0};
 
@@ -173,18 +173,14 @@ static int audio_buffer_sync_callback(
   LRAudioBuf *audio_buf = (LRAudioBuf*)context;
   float *out = (float*)outputBuffer;
 
-  for(unsigned long i=0; i<framesPerBuffer; i = (i+1) % (WIDTH*HEIGHT)) {
-    float (*nn_l)[COLOURS] = (void *) 
-      cppn[last_layer].activations.e;
-    // left
-    *out++ = audio_double_buf[audio_buf->left_phase]
-                             [audio_buf->colourphase]
-            * volumeMultiplier;
-    // right
-    *out++ = audio_double_buf[audio_buf->left_phase]
-                             [(audio_buf->colourphase + 1) % COLOURS]
-            * volumeMultiplier;
-    audio_buf->left_phase ++;
+  for(unsigned long i=0; i<framesPerBuffer; ++i) {
+    *out++ = audio_double_buf[audio_buf->left_phase] * volumeMultiplier;
+    *out++ = audio_double_buf[audio_buf->right_phase] * volumeMultiplier;
+
+    audio_buf->left_phase = (audio_buf->left_phase + 1) % AUDIO_BAND;
+    audio_buf->right_phase = (audio_buf->right_phase + 1) % AUDIO_BAND;
+
+    /*
     if(audio_buf->left_phase >= WIDTH*HEIGHT) {
       audio_buf->left_phase -= WIDTH*HEIGHT;
       audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
@@ -195,65 +191,7 @@ static int audio_buffer_sync_callback(
           SHIFT_COLOURS = 0;
         }
       }
-    }
-
-/*    audio_buf->left_phase += 1;
-    // refill the audio buffer with the ifft of the visualization scanning
-    // down the screen
-    if( audio_buf->left_phase >= AUDIO_BAND ) {
-      audio_buf->left_phase -= AUDIO_BAND;
-      audio_buf->note_pos += 1;
-      if (audio_buf->note_pos > HEIGHT) { // SCREENWRAP TIME //
-        audio_buf->note_pos = 0;
-        if(SHIFT_COLOURS == 0) {
-          SHIFT_COLOURS = 1;
-        } else {
-          SHIFT_COLOURS = 0;
-        }
-      }
-      int p = audio_buf->note_pos;
-      
-      for (int j=0; j < AUDIO_FACTOR; ++j) {
-        for (int k=0; k < WIDTH; ++k) {
-          if ( (p +j) % 2 == 0) {
-            audio_buf->freq_data[j*WIDTH + k] = nn_l[p + j][k][0];
-          } else {
-            audio_buf->freq_data[j*WIDTH + k] = nn_l[p + j][WIDTH - (k + 1)][0];
-          }
-        /*if(COLOURS == 3) {
-          audio_buf->freq_data[j] += nn_l[p][j/AUDIO_FACTOR][1] 
-            + nn_l[p][j/AUDIO_FACTOR][2];
-        }
-        }
-      }
-/*      // scan for the max entry and play that note
-      for (int j=0; j < AUDIO_BAND; ++j) { 
-        if (audio_buf->freq_data[j] > audio_buf->freq_data[audio_buf->maxpos] &&
-            abs(audio_buf->freq_data[j]) > 0.09 // Only if it's loud enough to change
-           ) {
-          audio_buf->melody[audio_buf->maxpos] = 0;
-          audio_buf->maxpos = j;
-          audio_buf->melody[audio_buf->maxpos] =
-            audio_buf->freq_data[j];*/
-
-      /*float smooth[AUDIO_FACTOR];
-      for(int a=0; a < AUDIO_FACTOR; ++a) {
-        smooth[a] = 1.0 / AUDIO_FACTOR;
-      }
-      inplace_1d_convolve(audio_buf->freq_data, (int) AUDIO_BAND, 
-        smooth, AUDIO_FACTOR);
-
-      float fft_output[AUDIO_BAND];
-      kiss_fftri(audio_buf->cfg, 
-        (kiss_fft_cpx *) &audio_buf->freq_data,
-        audio_buf->buffer_data);
-
-      /*  for (int i=0; i < AUDIO_BAND; ++i) {
-          audio_buf->buffer_data[i] = fft_output[i] * 0.5 
-            + audio_buf->buffer_data[i] * 0.5;
-        }
-    }
-      */
+    }*/
   }
   return paContinue;
 }
@@ -312,7 +250,7 @@ static int init_portaudio() {
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
   
   // setup key structures //
-  const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
+  printf("Bandpass: %f\n", BANDPASS);
   for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
   float freqs[] = // key of A
    // A    B       C#      D       E       F#      G#
@@ -357,22 +295,28 @@ void display() {
       output,
       (kiss_fft_cpx *) frequency_space);
 
-  if(CLAMP_KEY != INT_MAX) {
     for(int i=0; i < AUDIO_BAND; i+=2) {
-      frequency_space[i] *= harmonics[i];
+      if(CLAMP_KEY != INT_MAX) {
+          frequency_space[i] *= harmonics[i];
+      }
+      if(i > 10.) {
+          frequency_space[i] = 0.f;
+      }
     }
-  }
   
   kiss_fftri(full_fftri_cfg, 
       (kiss_fft_cpx *) frequency_space,
       output);
+
   // We need to normalize the fft output ourselves, same as fftw.
-  for(int i=0; i < AUDIO_BAND * COLOURS; ++i) { 
-    cppn[last_layer].activations.e[i] /= (AUDIO_BAND/2);
+  for(int i=0; i < AUDIO_BAND; ++i) { 
+    cppn[last_layer].activations.e[i] /= AUDIO_BAND;
   }
-  memcpy(audio_double_buf, output, AUDIO_BAND*COLOURS);
+
+  memcpy(audio_double_buf, output, AUDIO_BAND * sizeof(float));
 
   // unsnake what gets rendered, or it's super abstract and doesn't look cppn
+  // /*
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
       for(int k=0; k < COLOURS; ++k) {
@@ -385,13 +329,13 @@ void display() {
     }
   }
   
-  render_buffer((float *) &framebuffer_unsnake);
+  render_buffer((float *) output);
 
   // only print once per second
   clock_t curtime = clock();
   if ( curtime - lasttime >= CLOCKS_PER_SEC ){ 
-    printf("FPS: %d\r", (frame_count - lastframe));
-    fflush(stdout);
+    printf("FPS: %d\n", (frame_count - lastframe));
+    fflush(stdout);	
     lastframe = frame_count;
     lasttime = curtime;
   }
