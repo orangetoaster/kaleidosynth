@@ -9,30 +9,38 @@
 #include "gl.h"
 #include <time.h>
 #include <limits.h>
+#include <fftw3.h>
 
+float framebuffer_unsnake[HEIGHT][WIDTH][COLOURS];
 /// AUDIO GLOBALS ///  
 static const float gaussian_kernel[] = 
     { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
 static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
-#define AUDIO_FACTOR 3
-#define AUDIO_BAND (WIDTH *AUDIO_FACTOR)
+#define AUDIO_FACTOR 4
+#define AUDIO_BAND (WIDTH *HEIGHT * COLOURS)
 typedef struct {
-  kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
+/*  kiss_fft_scalar buffer_data[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar copy_buf[AUDIO_BAND]; // pre-buffer size
   kiss_fft_scalar freq_data[AUDIO_BAND]; // pre-buffer size
-  kiss_fft_scalar melody[AUDIO_BAND]; // pre-buffer size
+  kiss_fft_scalar melody[AUDIO_BAND]; // pre-buffer size*/
   int left_phase;
   int note_pos;
   int maxpos;
+  int colourphase;
   kiss_fftr_cfg cfg;
 } LRAudioBuf;
 LRAudioBuf audio_buf = { 0 };
 PaStream *stream = NULL;
-static const float volumeMultiplier = 0.01f;
+static const float volumeMultiplier = 1.0; //0.01f;
 static const float SAMPLE_RATE = 44100;
 
 static volatile clock_t lasttime = 0;
+float harmonics[AUDIO_BAND];
+float frequency_space[AUDIO_BAND];
+float audio_double_buf[AUDIO_BAND][COLOURS];
+kiss_fftr_cfg full_fftri_cfg = {0};
+kiss_fftr_cfg full_fftr_cfg = {0};
 
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = INPUT_DIM; // x, y, frame
@@ -152,16 +160,34 @@ static int audio_buffer_sync_callback(
   LRAudioBuf *audio_buf = (LRAudioBuf*)context;
   float *out = (float*)outputBuffer;
 
-  for(unsigned long i=0; i<framesPerBuffer; i++ ) {
-    *out++ = audio_buf->buffer_data[audio_buf->left_phase] 
-      * volumeMultiplier;  // left channel
+  for(unsigned long i=0; i<framesPerBuffer; i = (i+1) % (WIDTH*HEIGHT)) {
+    float (*nn_l)[COLOURS] = (void *) 
+      cppn[last_layer].activations.e;
+    //*out++ = audio_buf->buffer_data[audio_buf->left_phase]
+    //*out++ = nn_l[audio_buf->left_phase++][audio_buf->colourphase] //+ nn_l[i][1] + nn_l[i][2])
+    // left
+    *out++ = audio_double_buf[audio_buf->left_phase][audio_buf->colourphase] //+ nn_l[i][1] + nn_l[i][2])
+      * volumeMultiplier;
+    // right
+    *out++ = audio_double_buf[audio_buf->left_phase][(audio_buf->colourphase + 1) % COLOURS] //+ nn_l[i][1] + nn_l[i][2])
+      * volumeMultiplier;
+    audio_buf->left_phase ++;
+    if(audio_buf->left_phase >= WIDTH*HEIGHT) {
+      audio_buf->left_phase -= WIDTH*HEIGHT;
+      audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
+      if(audio_buf->colourphase ==2) {
+        if(SHIFT_COLOURS == 0) {
+          SHIFT_COLOURS = 1;
+        } else {
+          SHIFT_COLOURS = 0;
+        }
+      }
+    }
 
-    audio_buf->left_phase += 1;
+/*    audio_buf->left_phase += 1;
     // refill the audio buffer with the ifft of the visualization scanning
     // down the screen
     if( audio_buf->left_phase >= AUDIO_BAND ) {
-      float (*nn_l)[WIDTH][COLOURS] = (void *) 
-        cppn[last_layer].activations.e;
       audio_buf->left_phase -= AUDIO_BAND;
       audio_buf->note_pos += 1;
       if (audio_buf->note_pos > HEIGHT) { // SCREENWRAP TIME //
@@ -174,14 +200,30 @@ static int audio_buffer_sync_callback(
       }
       int p = audio_buf->note_pos;
       
-      for (int j=0; j < AUDIO_BAND; ++j) {
-        audio_buf->freq_data[j] = nn_l[p][j/AUDIO_FACTOR][0]/AUDIO_FACTOR;
-        if(COLOURS == 3) {
+      for (int j=0; j < AUDIO_FACTOR; ++j) {
+        for (int k=0; k < WIDTH; ++k) {
+          if ( (p +j) % 2 == 0) {
+            audio_buf->freq_data[j*WIDTH + k] = nn_l[p + j][k][0];
+          } else {
+            audio_buf->freq_data[j*WIDTH + k] = nn_l[p + j][WIDTH - (k + 1)][0];
+          }
+        /*if(COLOURS == 3) {
           audio_buf->freq_data[j] += nn_l[p][j/AUDIO_FACTOR][1] 
             + nn_l[p][j/AUDIO_FACTOR][2];
         }
+        }
       }
-      float smooth[AUDIO_FACTOR];
+/*      // scan for the max entry and play that note
+      for (int j=0; j < AUDIO_BAND; ++j) { 
+        if (audio_buf->freq_data[j] > audio_buf->freq_data[audio_buf->maxpos] &&
+            abs(audio_buf->freq_data[j]) > 0.09 // Only if it's loud enough to change
+           ) {
+          audio_buf->melody[audio_buf->maxpos] = 0;
+          audio_buf->maxpos = j;
+          audio_buf->melody[audio_buf->maxpos] =
+            audio_buf->freq_data[j];*/
+
+      /*float smooth[AUDIO_FACTOR];
       for(int a=0; a < AUDIO_FACTOR; ++a) {
         smooth[a] = 1.0 / AUDIO_FACTOR;
       }
@@ -191,13 +233,14 @@ static int audio_buffer_sync_callback(
       float fft_output[AUDIO_BAND];
       kiss_fftri(audio_buf->cfg, 
         (kiss_fft_cpx *) &audio_buf->freq_data,
-        fft_output);
+        audio_buf->buffer_data);
 
-        for (int i=0; i < AUDIO_BAND; ++i) {
+      /*  for (int i=0; i < AUDIO_BAND; ++i) {
           audio_buf->buffer_data[i] = fft_output[i] * 0.5 
             + audio_buf->buffer_data[i] * 0.5;
         }
     }
+      */
   }
   return paContinue;
 }
@@ -218,7 +261,7 @@ static int init_portaudio() {
   
   // init the buzz with a real ifft
   memset(&audio_buf, 0, sizeof(audio_buf));
-  audio_buf.cfg = kiss_fftr_alloc(AUDIO_BAND, 1, NULL,NULL);
+//  audio_buf.cfg = kiss_fftr_alloc(AUDIO_BAND, 1, NULL,NULL);
 
   retfail(Pa_Initialize());
 
@@ -229,15 +272,15 @@ static int init_portaudio() {
   PaDeviceInfo *di = NULL;
   for (int i=0; i < num_devs ; ++ i) {
     di = Pa_GetDeviceInfo(i);
-    printf("Available Adev: %s\n", di->name);
-    if(strcmp(di->name, "default") == 0) {
+    printf("Available Adev: %s %lf\n", di->name, di->defaultSampleRate);
+    if(strcmp(di->name, "pulse") == 0) {
       printf("Choosing this device\n");
       chosen_device = i;
     }
   }
   
   // If this is stereo, then the autputBuffer is (L, R) tuples
-  outputParameters.channelCount = 1; 
+  outputParameters.channelCount = 2; 
   // 32 bit floating point output
   outputParameters.sampleFormat = paFloat32;
   outputParameters.suggestedLatency = 
@@ -248,13 +291,37 @@ static int init_portaudio() {
       &stream,
       NULL, // no input
       &outputParameters,
-      SAMPLE_RATE, // sample rate
-      AUDIO_BAND, // sample frames per buffer
+      44100.0, //SAMPLE_RATE, // sample rate
+      paFramesPerBufferUnspecified, // sample frames per buffer
       paNoFlag,
       audio_buffer_sync_callback,
       &audio_buf )); // this is context in the callback
   
   retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
+  
+  // setup key structures //
+  const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
+  for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
+  float freqs[] = // key of A
+   // A    B       C#      D       E       F#      G#
+    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
+  for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
+    int bin = (int) round((freqs[note]/2.0) 
+                / (SAMPLE_RATE/ (float) AUDIO_BAND));
+    float falloff = 1.0;
+    for(; bin < AUDIO_BAND; bin *= 4.0) { // double for octave and phase
+      harmonics[bin] = 1.0 * falloff;
+      falloff /= 3.0;
+    }
+  }
+
+  float sq_gaussian_kernel[glen*2];
+  memset(sq_gaussian_kernel, 0.0, glen*2);
+  for( int i =0; i < glen; ++i) {
+    sq_gaussian_kernel[i*2] = sqrt(sqrt(gaussian_kernel[i]));
+  }
+  inplace_1d_convolve(harmonics, (int) AUDIO_BAND, sq_gaussian_kernel, glen);
+
 
   return SUCCESS;
 }
@@ -264,8 +331,13 @@ void display() {
 
   for(int i=0; i < HEIGHT; ++i) {
     for(int j=0; j < WIDTH; ++j) {
-      input[i][j][0] = (float) j / (WIDTH/2) -1.0;
-      input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      if(i %2 == 0) {
+        input[i][j][0] = (float) j / (WIDTH/2) -1.0;
+        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      } else {
+        input[i][j][0] = (float) (WIDTH - (j+1)) / (WIDTH/2) -1.0;
+        input[i][j][1] = (float) i / (HEIGHT/2) -1.0;
+      }
       input[i][j][2] = (float) frame_count / (SECONDS * FPS / 2) -1.0;
     }
   }
@@ -274,39 +346,55 @@ void display() {
   
   float (*output)[WIDTH][COLOURS] = 
     (void *) cppn[last_layer].activations.e;
-
-  const float BANDPASS = 15000. / (SAMPLE_RATE / (float) AUDIO_BAND);
-  float harmonics[AUDIO_BAND];
-  for(int i = 0; i < AUDIO_BAND; i++) harmonics[i] = 0.;
-  float freqs[] = // key of A
-   // A    B       C#      D       E       F#      G#
-    { 440, 493.88, 554.37, 587.33, 659.25, 739.99, 830.61 };
-  for(int note=0; note < sizeof(freqs) / sizeof(float); ++note) {
-    int bin = (int) round((freqs[note]/2.0) 
-                / (SAMPLE_RATE/ (float) AUDIO_BAND));
-    for(; bin < AUDIO_BAND; bin *= 2.0) {
-      harmonics[bin] = 1.0;
-    }
-  }
-
-  float sq_gaussian_kernel[glen];
-  for( int i =0; i < glen; ++i) {
-    sq_gaussian_kernel[i] = sqrt(sqrt(gaussian_kernel[i]));
-  }
-  inplace_1d_convolve(harmonics, (int) AUDIO_BAND, sq_gaussian_kernel, glen);
+ 
+//  fftw_real /*in[AUDIO_BAND], out[AUDIO_BAND],*/ power_spectrum[AUDIO_BAND/2+1];
+//  rfftw_plan p;
+//  int k;
+//  p = rfftw_create_plan(AUDIO_BAND, FFTW_REAL_TO_COMPLEX, FFTW_ESTIMATE);
+//  rfftw_one(p, output, frequency_space);
+//  power_spectrum[0] = frequency_space[0]*frequency_space[0];  /* DC component */
+//  /* (k < AUDIO_BAND/2 rounded up) */
+//  for (k = 1; k < (AUDIO_BAND+1)/2; ++k) {
+//    power_spectrum[k] = frequency_space[k]*frequency_space[k] + frequency_space[AUDIO_BAND-k]*frequency_space[AUDIO_BAND-k];
+//  }
+//  if (AUDIO_BAND % 2 == 0) {/* AUDIO_BAND is even */
+//    /* Nyquist freq. */
+//    power_spectrum[AUDIO_BAND/2] = frequency_space[AUDIO_BAND/2]*frequency_space[AUDIO_BAND/2];
+//  }
+//  rfftw_destroy_plan(p);
+//
+  kiss_fftr(full_fftr_cfg, 
+      output,
+      (kiss_fft_cpx *) frequency_space);
 
   if(CLAMP_KEY != INT_MAX) {
-    for(int i=0; i < HEIGHT; ++i) {
-      for(int j=0; j < WIDTH; ++j) {
-        output[i][j][0] *= harmonics[j*AUDIO_FACTOR];
-        if(COLOURS == 3) {
-          output[i][j][1] *= harmonics[j*AUDIO_FACTOR];
-          output[i][j][2] *= harmonics[j*AUDIO_FACTOR];
+    for(int i=0; i < AUDIO_BAND; i+=2) {
+      frequency_space[i] *= harmonics[i];
+    }
+  }
+  
+  kiss_fftri(full_fftri_cfg, 
+      (kiss_fft_cpx *) frequency_space,
+      output);
+  for(int i=0; i < AUDIO_BAND * COLOURS; ++i) { // tada, unnormalized output
+    cppn[last_layer].activations.e[i] /= (AUDIO_BAND/2);
+  }
+  memcpy(audio_double_buf, output, AUDIO_BAND*COLOURS);
+
+  // unsnake what gets rendered, or it's super abstract and doesn't look cppn
+  for(int i=0; i < HEIGHT; ++i) {
+    for(int j=0; j < WIDTH; ++j) {
+      for(int k=0; k < COLOURS; ++k) {
+        if(i %2 == 0) {
+          framebuffer_unsnake[i][j][k] = output[i][j][k];
+        } else {
+          framebuffer_unsnake[i][WIDTH - (j+1)][k] = output[i][j][k];
         }
       }
     }
   }
-  render_buffer(res);
+  
+  render_buffer((float *) &framebuffer_unsnake);
 
   // only print once per second
   clock_t curtime = clock();
@@ -365,10 +453,8 @@ void timer(int value) {
   glutTimerFunc(1000 / FPS, &timer, value);
   frame_count ++;
   if(frame_count > 60 * SECONDS) {
-    // cleanup sound //
-    shutdown();
-    printf("All good.\n");
-    exit(0);
+    frame_count = 0;
+    seed_network();
   }
 }
 
@@ -376,6 +462,8 @@ int main(int argc, char **argv) {
   srand(time(NULL));
   printf("Hello deepnet");
   retfail(init_neural_network());
+  full_fftri_cfg = kiss_fftr_alloc(WIDTH * HEIGHT * COLOURS, 1, NULL,NULL);
+  full_fftr_cfg = kiss_fftr_alloc(WIDTH * HEIGHT * COLOURS, 0, NULL,NULL);
 
   printf("Hello sound\n");
   retfail(init_portaudio());

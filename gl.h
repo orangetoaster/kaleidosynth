@@ -15,13 +15,13 @@
 #define FPS 12
 #define WIDTH 320
 #define HEIGHT 240
-#define COLOURS 1
+#define COLOURS 3
 #define INPUT_DIM 3
 
 /// VIDEO GLOBALS ///
 static volatile int frame_count = 0;
 static volatile int lastframe = 0;
-static const int SECONDS = 30;
+static const int SECONDS = 3;
 static volatile int SHIFT_COLOURS = 0;
 static int framebuffer_id = 0;
 
@@ -33,13 +33,13 @@ void create_framebuffer() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 }
 
-void render_buffer(matrix res) {
+void render_buffer(float *buffer) {
   if(COLOURS == 1) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 
-      WIDTH, HEIGHT, 0, GL_LUMINANCE, GL_FLOAT, res.e);
+      WIDTH, HEIGHT, 0, GL_LUMINANCE, GL_FLOAT, buffer);
   } else if (COLOURS == 3) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB,
-               GL_FLOAT, res.e - SHIFT_COLOURS * sizeof(float));
+               GL_FLOAT, buffer - SHIFT_COLOURS * sizeof(float));
   }
   //glPolygonMode(GL_FRONT_AND_BACK, self->polygon_mode);
   
