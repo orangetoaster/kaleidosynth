@@ -48,7 +48,7 @@ static const int hidden_neurons = 20, output_neurons = COLOURS;
 static const int epochs = 10;
 static const int num_layers = 4; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
-static const float initialization_sigma = 4 / num_layers;
+static const float initialization_sigma = 4.0 / num_layers;
 struct neural_layer cppn[] = {
     {
         .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
