@@ -9,6 +9,7 @@
 #include "gl.h"
 #include <time.h>
 #include <limits.h>
+#include <assert.h>
 
 float framebuffer_unsnake[HEIGHT][WIDTH][COLOURS];
 /// AUDIO GLOBALS ///  
@@ -291,10 +292,9 @@ void display() {
 
     matrix res = feedforward(cppn, num_layers);
 
-    float (*output)[COLOURS] = 
-        (void *) cppn[last_layer].activations.e;
-
     if(CLAMP_KEY != INT_MAX) { // neural piano
+        float (*output) = 
+            (void *) cppn[last_layer].activations.e;
         kiss_fftr(full_fftr_cfg, 
                 output,
                 (kiss_fft_cpx *) frequency_space);
@@ -317,49 +317,50 @@ void display() {
 
     } else { 
         if (MELODY_ON) {
-            float melody_volume = 0.2;
+            float melody_volume = 0.1;
             int nearest_note = 0;
+            assert(AUDIO_BAND % BAR_LENGTH == 0);
+            float (*output)[BAR_LENGTH][COLOURS] = 
+                (void *) cppn[last_layer].activations.e;
 
-            for(int b=0; b < AUDIO_BAND; b+= BAR_LENGTH) {
-                float note_real[BAR_LENGTH] = { 0 };
-                float note_freq[BAR_LENGTH] = { 0 };
-                int max_activations [12] = { 0 };
-                for (int j=0; j < BAR_LENGTH; ++j) {
-                    note_real[j] = output[b+j][1]; // * output[b+j][1] * output[b+j][2];
-                }
-                kiss_fftr(bar_fftr_cfg, 
-                        note_real,
-                        (kiss_fft_cpx *) note_freq);
-                // scan for the max entry and play that note
-                int max_activation = 0;
-                for (int j=0; j < BAR_LENGTH; ++j) {
-                    if(note_freq[j] > note_freq[max_activation]) {
-                        max_activation = j;
+            for(int b=0; b < BARS_PER_FRAME; ++b) {
+                for(int c=0; c < COLOURS; ++c) {
+                    float note_real[BAR_LENGTH] = { 0 };
+                    float note_freq[BAR_LENGTH] = { 0 };
+                    int max_activations [12] = { 0 };
+                    for (int j=0; j < BAR_LENGTH; ++j) {
+                        note_real[j] = output[b][j][c]; 
                     }
-                }
-                // find the nearest note
-                nearest_note = (nearest_note +1) % NUM_KEYS;
-                
-                for(int j=0; j < BAR_LENGTH; ++j) {
-                    note_freq[j] *= harmonics[nearest_note][j] / BAR_LENGTH;
-                }
-                kiss_fftr(bar_fftr_cfg, 
-                        (kiss_fft_cpx *) note_freq,
-                        note_real);
+                    kiss_fftr(bar_fftr_cfg, 
+                            note_real,
+                            (kiss_fft_cpx *) note_freq);
+                    // scan for the max entry and play that note
+                    int max_activation = 0;
+                    for (int j=0; j < BAR_LENGTH; ++j) {
+                        if(note_freq[j] > note_freq[max_activation]) {
+                            max_activation = j;
+                        }
+                    }
+                    // find the nearest note
+                    nearest_note = (nearest_note +1) % NUM_KEYS;
+                    
+                    for(int j=0; j < BAR_LENGTH; ++j) {
+                        note_freq[j] *= harmonics[nearest_note][j] / BAR_LENGTH;
+                    }
+                    kiss_fftr(bar_fftr_cfg, 
+                            (kiss_fft_cpx *) note_freq,
+                            note_real);
 
-                for(int j=0; j < BAR_LENGTH; ++j) { // normalize and add
-                    output[b+j][1] = (output[b+j][1] * (1-melody_volume)) + 
-                        note_real[j] * melody_volume;
-                    /*    output[b+j][1] = (output[b+j][1] * (1-melody_volume)) + 
-                          note_real[j] / BAR_LENGTH * melody_volume;
-                          output[b+j][2] = (output[b+j][2] * (1-melody_volume)) + 
-                          note_real[j] / BAR_LENGTH * melody_volume;*/
+                    for(int j=0; j < BAR_LENGTH; ++j) { // normalize and add
+                        output[b][j][c] = (output[b][j][c] * (1-melody_volume)) + 
+                            note_real[j] * melody_volume;
+                    }
                 }
             }
         }
     }
 
-    memcpy(audio_double_buf, output, AUDIO_BAND * sizeof(float));
+    memcpy(audio_double_buf, cppn[last_layer].activations.e, AUDIO_BAND * sizeof(float));
 
     // unsnake what gets rendered, or it's super abstract and doesn't look cppn
     float (*square_nn_output)[WIDTH][COLOURS] = 
