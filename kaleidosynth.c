@@ -16,6 +16,9 @@ static const float gaussian_kernel[] =
 { 0.006, 0.06136, 0.24477, 0.38774, 0.24477, 0.06136, 0.006};
 static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
+static volatile int MELODY_ON = 0;
+#define BARS_PER_FRAME 4
+#define BAR_LENGTH (WIDTH*HEIGHT/BARS_PER_FRAME)
 #define AUDIO_FACTOR 4
 #define AUDIO_BAND (WIDTH * HEIGHT * COLOURS)
 typedef struct {
@@ -40,13 +43,15 @@ float frequency_space[AUDIO_BAND];
 float audio_double_buf[WIDTH*HEIGHT][COLOURS];
 kiss_fftr_cfg full_fftri_cfg = {0};
 kiss_fftr_cfg full_fftr_cfg = {0};
+kiss_fftr_cfg bar_fftri_cfg = {0};
+kiss_fftr_cfg bar_fftr_cfg = {0};
 
 /// NEURAL NETWORK GLOBALS ///
 static const int nn_input_size = INPUT_DIM; // x, y, frame
 static const int nn_batch_size = WIDTH * HEIGHT;
 static const int hidden_neurons = 20, output_neurons = COLOURS;
 static const int epochs = 10;
-static const int num_layers = 5; // THIS MUST MATCH BELOW
+static const int num_layers = 4; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
 static const float initialization_sigma = 6.0 / num_layers;
 struct neural_layer cppn[] = {
@@ -58,15 +63,6 @@ struct neural_layer cppn[] = {
     }, {
         .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
         .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
-        .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .activate = &gaussian_activate,
-        .backprop = &gaussian_prime,
-    }, {
-        .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
-        .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
         .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
@@ -171,7 +167,7 @@ void inplace_1d_convolve(
 
 /// AUDIO CODE ///
 // This can be called at interrupt level, so nothing fancy, no malloc/free
-static int audio_buffer_sync_callback(
+static int audio_callback(
         const void *inputBuffer, // unused
         void *outputBuffer,
         unsigned long framesPerBuffer, // This is defined in setup 64
@@ -194,13 +190,13 @@ static int audio_buffer_sync_callback(
         if(audio_buf->left_phase >= WIDTH*HEIGHT) {
             audio_buf->left_phase -= WIDTH*HEIGHT;
             audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
-            /*if(audio_buf->colourphase ==2) {
-                if(SHIFT_COLOURS == 0) {
+            if(audio_buf->colourphase ==2) {
+           /*     if(SHIFT_COLOURS == 0) {
                     SHIFT_COLOURS = 1;
                 } else {
                     SHIFT_COLOURS = 0;
-                }
-            }*/
+                }*/
+            }
         }
     }
     return paContinue;
@@ -254,7 +250,7 @@ static int init_portaudio() {
                 44100.0, //SAMPLE_RATE, // sample rate
                 paFramesPerBufferUnspecified, // sample frames per buffer
                 paNoFlag,
-                audio_buffer_sync_callback,
+                audio_callback,
                 &audio_buf )); // this is context in the callback
 
     retfail(Pa_SetStreamFinishedCallback(stream, &cleanup));
@@ -295,53 +291,86 @@ void display() {
 
     matrix res = feedforward(cppn, num_layers);
 
-    float (*output)[WIDTH][COLOURS] = 
+    float (*output)[COLOURS] = 
         (void *) cppn[last_layer].activations.e;
 
-    kiss_fftr(full_fftr_cfg, 
-            output,
-            (kiss_fft_cpx *) frequency_space);
+    if(CLAMP_KEY != INT_MAX) { // neural piano
+        kiss_fftr(full_fftr_cfg, 
+                output,
+                (kiss_fft_cpx *) frequency_space);
 
-    for(int i=0; i < AUDIO_BAND; i ++) {
-        if(CLAMP_KEY != INT_MAX) {
+        for(int i=0; i < AUDIO_BAND; i ++) {
             frequency_space[i] *= harmonics[CLAMP_KEY][i];
+
+            if(i > BANDPASS) {
+                //frequency_space[i] = 0.f;
+            }
         }
 
-        if(i > BANDPASS) {
-            //frequency_space[i] = 0.f;
+        kiss_fftri(full_fftri_cfg, 
+                (kiss_fft_cpx *) frequency_space,
+                output);
+
+        for(int i=0; i < AUDIO_BAND; ++i) { // normalize
+            cppn[last_layer].activations.e[i] /= AUDIO_BAND;
         }
-    }
 
-    kiss_fftri(full_fftri_cfg, 
-            (kiss_fft_cpx *) frequency_space,
-            output);
+    } else { 
+        if (MELODY_ON) {
+            float melody_volume = 0.2;
+            int nearest_note = 0;
 
-    /*      // scan for the max entry and play that note
-            for (int j=0; j < AUDIO_BAND; ++j) { 
-            if (audio_buf->freq_data[j] > audio_buf->freq_data[audio_buf->maxpos] &&
-            abs(audio_buf->freq_data[j]) > 0.09 // Only if it's loud enough to change
-            ) {
-            audio_buf->melody[audio_buf->maxpos] = 0;
-            audio_buf->maxpos = j;
-            audio_buf->melody[audio_buf->maxpos] =
-            audio_buf->freq_data[j];*/
+            for(int b=0; b < AUDIO_BAND; b+= BAR_LENGTH) {
+                float note_real[BAR_LENGTH] = { 0 };
+                float note_freq[BAR_LENGTH] = { 0 };
+                int max_activations [12] = { 0 };
+                for (int j=0; j < BAR_LENGTH; ++j) {
+                    note_real[j] = output[b+j][1]; // * output[b+j][1] * output[b+j][2];
+                }
+                kiss_fftr(bar_fftr_cfg, 
+                        note_real,
+                        (kiss_fft_cpx *) note_freq);
+                // scan for the max entry and play that note
+                int max_activation = 0;
+                for (int j=0; j < BAR_LENGTH; ++j) {
+                    if(note_freq[j] > note_freq[max_activation]) {
+                        max_activation = j;
+                    }
+                }
+                // find the nearest note
+                nearest_note = (nearest_note +1) % NUM_KEYS;
+                
+                for(int j=0; j < BAR_LENGTH; ++j) {
+                    note_freq[j] *= harmonics[nearest_note][j] / BAR_LENGTH;
+                }
+                kiss_fftr(bar_fftr_cfg, 
+                        (kiss_fft_cpx *) note_freq,
+                        note_real);
 
-    // We need to normalize the fft output ourselves, same as fftw.
-    for(int i=0; i < AUDIO_BAND; ++i) { 
-        cppn[last_layer].activations.e[i] /= AUDIO_BAND;
+                for(int j=0; j < BAR_LENGTH; ++j) { // normalize and add
+                    output[b+j][1] = (output[b+j][1] * (1-melody_volume)) + 
+                        note_real[j] * melody_volume;
+                    /*    output[b+j][1] = (output[b+j][1] * (1-melody_volume)) + 
+                          note_real[j] / BAR_LENGTH * melody_volume;
+                          output[b+j][2] = (output[b+j][2] * (1-melody_volume)) + 
+                          note_real[j] / BAR_LENGTH * melody_volume;*/
+                }
+            }
+        }
     }
 
     memcpy(audio_double_buf, output, AUDIO_BAND * sizeof(float));
 
     // unsnake what gets rendered, or it's super abstract and doesn't look cppn
-    // /*
+    float (*square_nn_output)[WIDTH][COLOURS] = 
+        (void *) cppn[last_layer].activations.e;
     for(int i=0; i < HEIGHT; ++i) {
         for(int j=0; j < WIDTH; ++j) {
             for(int k=0; k < COLOURS; ++k) {
                 if(i %2 == 0) {
-                    framebuffer_unsnake[i][j][k] = output[i][j][k];
+                    framebuffer_unsnake[i][j][k] = square_nn_output[i][j][k];
                 } else {
-                    framebuffer_unsnake[i][WIDTH - (j+1)][k] = output[i][j][k];
+                    framebuffer_unsnake[i][WIDTH - (j+1)][k] = square_nn_output[i][j][k];
                 }
             }
         }
@@ -397,6 +426,8 @@ int keyboard_callback(unsigned char key, int x, int y) {
         CLAMP_KEY = 6;
     } else if (key == ' ') {
         CLAMP_KEY = INT_MAX;
+    } else if (key == 'm') {
+        MELODY_ON = !MELODY_ON;
     }
     return SUCCESS;
 }
@@ -417,6 +448,8 @@ int main(int argc, char **argv) {
     retfail(init_neural_network());
     full_fftri_cfg = kiss_fftr_alloc(WIDTH * HEIGHT * COLOURS, 1, NULL,NULL);
     full_fftr_cfg = kiss_fftr_alloc(WIDTH * HEIGHT * COLOURS, 0, NULL,NULL);
+    bar_fftri_cfg = kiss_fftr_alloc(BAR_LENGTH, 1, NULL,NULL);
+    bar_fftr_cfg = kiss_fftr_alloc(BAR_LENGTH, 0, NULL,NULL);
 
     printf("Hello sound\n");
     retfail(init_portaudio());

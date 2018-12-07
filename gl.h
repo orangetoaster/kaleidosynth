@@ -64,7 +64,7 @@ void render_buffer(float *buffer) {
 int init_display(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
-  glutInitWindowSize((int)WIDTH*2, (int) HEIGHT*2);
+  glutInitWindowSize((int)WIDTH*4, (int) HEIGHT*4);
 
   glutCreateWindow("Kaleidosynth");
   //glutFullScreen();
