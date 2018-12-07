@@ -57,37 +57,17 @@ static const int last_layer = num_layers -1;
 static const float initialization_sigma = 6.0 / num_layers;
 struct neural_layer cppn[] = {
     {
-        .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
         .activations = { .x = nn_batch_size, .y = nn_input_size, .e = NULL },
         .zvals = { .x = nn_batch_size, .y = nn_input_size, .e = NULL },
-        .activate = NULL, .backprop = NULL,
     }, {
-        .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
-        .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
-        .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .activate = &gaussian_activate,
         .backprop = &gaussian_prime,
     }, {
-        .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
-        .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
-        .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
-        .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .activate = &gaussian_activate,
         .backprop = &gaussian_prime,
     }, {
-        .weights = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
-            .w_delt = { .x = hidden_neurons, .y = output_neurons, .e = NULL },
-            .biases = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
-            .b_delt = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
-            .activations = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
-            .zvals = { .x = nn_batch_size, .y = output_neurons, .e = NULL },
-            .activate = &gaussian_activate,
-            .backprop = &gaussian_prime,
+        .activate = &gaussian_activate,
+        .backprop = &gaussian_prime,
     },
 };
 
@@ -110,6 +90,17 @@ static int init_neural_network() {
             cppn[i].zvals.e = malloc(nn_batch_size * nn_input_size * 
                     sizeof(float));
         } else {
+            cppn[i].weights.x = cppn[i].w_delt.x = cppn[i-1].activations.y;
+            cppn[i].biases.x = cppn[i].b_delt.x = cppn[i].activations.x =
+                cppn[i].zvals.x = nn_batch_size;
+            if(i == last_layer) {
+                cppn[i].weights.y = cppn[i].w_delt.y = cppn[i].biases.y = cppn[i].b_delt.y = 
+                    cppn[i].activations.y = cppn[i].zvals.y = output_neurons;
+            } else {
+                cppn[i].weights.y = cppn[i].w_delt.y = cppn[i].biases.y = cppn[i].b_delt.y = 
+                    cppn[i].activations.y = cppn[i].zvals.y = hidden_neurons;
+            }
+
             cppn[i].weights.e = malloc(cppn[i].weights.x * cppn[i].weights.y * 
                     sizeof(float));
             cppn[i].w_delt.e = calloc(cppn[i].w_delt.x * cppn[i].w_delt.y, 
