@@ -187,6 +187,19 @@ float gaussian_activate(float zval, float bias) {
 float gaussian_prime(float zval, float activation) {
   return -2 * zval * activation;
 }
+float tanh_activate(float zval, float bias) {
+  float sum_term = zval + bias;
+  return tanh(sum_term);
+}
+float relu_activate(float zval, float bias) {
+  float sum_term = zval + bias;
+  if(sum_term < 0) {
+    return 0;
+  } else {
+    return sum_term;
+  }
+}
+
 
 matrix feedforward(struct neural_layer layer[], const int neural_layers) {
   // propigate the layers

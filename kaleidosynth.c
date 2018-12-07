@@ -46,9 +46,9 @@ static const int nn_input_size = INPUT_DIM; // x, y, frame
 static const int nn_batch_size = WIDTH * HEIGHT;
 static const int hidden_neurons = 20, output_neurons = COLOURS;
 static const int epochs = 10;
-static const int num_layers = 4; // THIS MUST MATCH BELOW
+static const int num_layers = 5; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
-static const float initialization_sigma = 4.0 / num_layers;
+static const float initialization_sigma = 6.0 / num_layers;
 struct neural_layer cppn[] = {
     {
         .weights = { 0 }, .w_delt = { 0 }, .biases = { 0 }, .b_delt = { 0 },
@@ -58,6 +58,15 @@ struct neural_layer cppn[] = {
     }, {
         .weights = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
         .w_delt = { .x = nn_input_size, .y = hidden_neurons, .e = NULL },
+        .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+        .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+        .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+        .zvals = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
+        .activate = &gaussian_activate,
+        .backprop = &gaussian_prime,
+    }, {
+        .weights = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
+        .w_delt = { .x = hidden_neurons, .y = hidden_neurons, .e = NULL },
         .biases = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .b_delt = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
         .activations = { .x = nn_batch_size, .y = hidden_neurons, .e = NULL },
@@ -185,13 +194,13 @@ static int audio_buffer_sync_callback(
         if(audio_buf->left_phase >= WIDTH*HEIGHT) {
             audio_buf->left_phase -= WIDTH*HEIGHT;
             audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
-            if(audio_buf->colourphase ==2) {
+            /*if(audio_buf->colourphase ==2) {
                 if(SHIFT_COLOURS == 0) {
                     SHIFT_COLOURS = 1;
                 } else {
                     SHIFT_COLOURS = 0;
                 }
-            }
+            }*/
         }
     }
     return paContinue;
