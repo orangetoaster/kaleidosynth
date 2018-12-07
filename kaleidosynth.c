@@ -18,7 +18,7 @@ static const float gaussian_kernel[] =
 static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
 static volatile int MELODY_ON = 0;
-#define BARS_PER_FRAME 4
+#define BARS_PER_FRAME 8
 #define BAR_LENGTH (WIDTH*HEIGHT/BARS_PER_FRAME)
 #define AUDIO_FACTOR 4
 #define AUDIO_BAND (WIDTH * HEIGHT * COLOURS)
@@ -54,7 +54,7 @@ static const int hidden_neurons = 20, output_neurons = COLOURS;
 static const int epochs = 10;
 static const int num_layers = 4; // THIS MUST MATCH BELOW
 static const int last_layer = num_layers -1;
-static const float initialization_sigma = 6.0 / num_layers;
+static const float initialization_sigma = 8.0 / num_layers;
 struct neural_layer cppn[] = {
     {
         .activations = { .x = nn_batch_size, .y = nn_input_size, .e = NULL },
@@ -183,11 +183,11 @@ static int audio_callback(
             audio_buf->left_phase -= WIDTH*HEIGHT;
             audio_buf->colourphase = (audio_buf->colourphase + 1) % 3;
             if(audio_buf->colourphase ==2) {
-           /*     if(SHIFT_COLOURS == 0) {
+                if(SHIFT_COLOURS == 0) {
                     SHIFT_COLOURS = 1;
                 } else {
                     SHIFT_COLOURS = 0;
-                }*/
+                }
             }
         }
     }
@@ -209,7 +209,6 @@ static int init_portaudio() {
     int chosen_device = 0;
 
     memset(&audio_buf, 0, sizeof(audio_buf));
-    //  audio_buf.cfg = kiss_fftr_alloc(AUDIO_BAND, 1, NULL,NULL);
 
     retfail(Pa_Initialize());
 
@@ -333,10 +332,22 @@ void display() {
                         }
                     }
                     // find the nearest note
-                    nearest_note = (nearest_note +1) % NUM_KEYS;
+                    int max_note = 0;
+                    float max_val = 0.0;
+                    float cur_val = 0.0;
+                    for(int cur_note=0; cur_note < NUM_KEYS; ++cur_note) {
+                        for(int j=0; j < BAR_LENGTH; ++j) {
+                            cur_val += 
+                                note_freq[j] * harmonics[max_note][j] / BAR_LENGTH;
+                            if(cur_val > max_val) {
+                                max_val = cur_val;
+                                max_note = cur_note;
+                            }
+                        }
+                    }
                     
                     for(int j=0; j < BAR_LENGTH; ++j) {
-                        note_freq[j] *= harmonics[nearest_note][j] / BAR_LENGTH;
+                        note_freq[j] *= harmonics[max_note][j] / BAR_LENGTH;
                     }
                     kiss_fftr(bar_fftr_cfg, 
                             (kiss_fft_cpx *) note_freq,
