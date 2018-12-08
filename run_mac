@@ -1,5 +1,5 @@
 #!/bin/bash
-mkdir -p good_bins/
+mkdir -p good_bins/ bin/
 gcc -DDEBUG -g -Wall \
   -I /System/Library/Frameworks/OpenGL.framework/Headers \
   -I /usr/local/opt/openblas/include \
