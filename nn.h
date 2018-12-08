@@ -189,7 +189,10 @@ float gaussian_prime(float zval, float activation) {
 }
 float tanh_activate(float zval, float bias) {
   float sum_term = zval + bias;
-  return tanh(sum_term);
+  return tanhf(sum_term);
+}
+float tanh_prime(float zval, float activation) {
+    return (1.0 - activation * activation);
 }
 float relu_activate(float zval, float bias) {
   float sum_term = zval + bias;
@@ -198,6 +201,12 @@ float relu_activate(float zval, float bias) {
   } else {
     return sum_term;
   }
+}
+float relu_prime(float zval, float activation) {
+    if (zval <= 1e-8 && zval >= -1e-8) {
+        return 0.5;
+    }
+    return activation > 0;
 }
 
 

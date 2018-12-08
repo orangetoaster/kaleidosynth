@@ -18,6 +18,7 @@ static const float gaussian_kernel[] =
 static const int glen= sizeof(gaussian_kernel) / sizeof(float);
 static volatile int CLAMP_KEY = INT_MAX;
 static volatile int MELODY_ON = 0;
+static volatile int BEATS_ON = 0;
 #define BARS_PER_FRAME 8
 #define BAR_LENGTH (WIDTH*HEIGHT/BARS_PER_FRAME)
 #define AUDIO_FACTOR 4
@@ -293,7 +294,7 @@ void display() {
             frequency_space[i] *= harmonics[CLAMP_KEY][i];
 
             if(i > BANDPASS) {
-                //frequency_space[i] = 0.f;
+                frequency_space[i] = 0.f;
             }
         }
 
@@ -306,12 +307,12 @@ void display() {
         }
 
     } else { 
+        float (*output)[BAR_LENGTH][COLOURS] = 
+            (void *) cppn[last_layer].activations.e;
         if (MELODY_ON) {
-            float melody_volume = 0.1;
+            float melody_volume = 0.2;
             int nearest_note = 0;
             assert(AUDIO_BAND % BAR_LENGTH == 0);
-            float (*output)[BAR_LENGTH][COLOURS] = 
-                (void *) cppn[last_layer].activations.e;
 
             for(int b=0; b < BARS_PER_FRAME; ++b) {
                 for(int c=0; c < COLOURS; ++c) {
@@ -356,6 +357,27 @@ void display() {
                     for(int j=0; j < BAR_LENGTH; ++j) { // normalize and add
                         output[b][j][c] = (output[b][j][c] * (1-melody_volume)) + 
                             note_real[j] * melody_volume;
+                    }
+                }
+            }
+        }
+
+        if(BEATS_ON) {
+            float beats_real[BAR_LENGTH] = {0};
+            float beats_freq[BAR_LENGTH] = {0};
+            randomize(beats_freq, BAR_LENGTH, initialization_sigma);
+            for(int i=0; i < BAR_LENGTH; ++i) {
+                beats_freq[i] += sqrt(BAR_LENGTH - i);
+            }
+
+            kiss_fftri(bar_fftri_cfg,
+                (kiss_fft_cpx *) beats_freq,
+                beats_real);
+
+            for(int b=0; b < BARS_PER_FRAME; ++b) {
+                for(int i=0; i < BAR_LENGTH; ++i) {
+                    for(int c=0; c < COLOURS; ++c) {
+                        output[b][i][c] += beats_real[i] / i;
                     }
                 }
             }
@@ -431,6 +453,8 @@ int keyboard_callback(unsigned char key, int x, int y) {
         CLAMP_KEY = INT_MAX;
     } else if (key == 'm') {
         MELODY_ON = !MELODY_ON;
+    } else if (key == 'B') {
+        BEATS_ON = !BEATS_ON;
     }
     return SUCCESS;
 }
