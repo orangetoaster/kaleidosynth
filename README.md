@@ -1,1 +1,1 @@
-#Mac Installation Instructions
+# Mac Installation Instructions
